@@ -17,7 +17,7 @@ import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
+import static spark.Spark.*;
 
 /**
  * Main class. Creates a Configuration and an engine and runs the tests.
@@ -32,7 +32,8 @@ public class Main {
 
     public static void main(String[] args) {
 
-
+        // path for health check(used as liveness probe for Kubernetes pod)
+        get("/healthz", ((request, response) -> "Healthy"));
         CliParser cliParser = new CliParser();
         System.out.println();
 
