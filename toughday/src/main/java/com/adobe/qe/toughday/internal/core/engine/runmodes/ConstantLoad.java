@@ -20,19 +20,21 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.ConstantLoadRunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.ConstantLoadRunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.RunModeSplitter;
 import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Description(desc = "Generates a constant load of test executions, regardless of their execution time.")
-public class ConstantLoad implements RunMode {
+public class ConstantLoad implements RunMode, Cloneable {
     private static final Logger LOG = LoggerFactory.getLogger(ConstantLoad.class);
 
     private static final String DEFAULT_LOAD_STRING = "50";
@@ -52,22 +54,32 @@ public class ConstantLoad implements RunMode {
     private long interval = DEFAULT_INTERVAL;
     private int rate;
     private int currentLoad;
+    //private int currentLoad;
+    private long initialDelay = 0;
+    /* field used for checking the finish condition when running TD distributed with the rate
+     * smaller than number of agents in the cluster. */
+    private int oneAgentRate = 0;
 
+    private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
     private TestCache testCache;
     private Phase phase;
+    private RunModeSplitter<ConstantLoad> runModeSplitter = new ConstantLoadRunModeSplitter();
+    private ScheduledFuture<?> scheduledFuture = null;
+    private final ConstantLoadRunModeBalancer runModeBalancer = new ConstantLoadRunModeBalancer();
 
     private Boolean measurable = true;
 
-    @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING, desc = "Set the load, in requests per second for the \"constantload\" runmode.")
+    @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING,
+            desc = "Set the load, in requests per second for the \"constantload\" runmodes.")
     public void setLoad(String load) {
         checkNotNegative(Long.parseLong(load), "load");
         this.load = Integer.parseInt(load);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getLoad() { return this.load; }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getStart() {
         return start;
     }
@@ -81,12 +93,13 @@ public class ConstantLoad implements RunMode {
         this.start = Integer.valueOf(start);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getRate() {
         return rate;
     }
 
-    @ConfigArgSet(required = false, desc = "The increase in load per time unit. When it equals -1, it means it is not set.", defaultValue = "-1")
+    @ConfigArgSet(required = false, desc = "The increase in load per time unit. When it equals -1, it means it is not set.",
+            defaultValue = "-1")
     public void setRate(String rate) {
         if (!rate.equals("-1")) {
             checkNotNegative(Long.parseLong(rate), "rate");
@@ -94,17 +107,18 @@ public class ConstantLoad implements RunMode {
         this.rate = Integer.valueOf(rate);
     }
 
-    @ConfigArgGet
-    public long getInterval() {
-        return interval;
+    @ConfigArgGet(redistribute = true)
+    public String getInterval() {
+        return String.valueOf(interval / 1000) + 's';
     }
 
-    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add increase the load.", defaultValue = DEFAULT_INTERVAL_STRING)
+    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add increase the load.",
+            defaultValue = DEFAULT_INTERVAL_STRING)
     public void setInterval(String interval) {
-        this.interval = GlobalArgs.parseDurationToSeconds(interval);
+        this.interval = GlobalArgs.parseDurationToSeconds(interval) * 1000;
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getEnd() {
         return end;
     }
@@ -115,6 +129,31 @@ public class ConstantLoad implements RunMode {
             checkNotNegative(Long.parseLong(end), "end");
         }
         this.end = Integer.valueOf(end);
+    }
+
+    public ConstantLoad() {
+        /* this is required when running TD distributed because scheduled task might be cancelled and
+         * rescheduled when rebalancing the work between the agents.
+         */
+        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) runRoundScheduler;
+        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
+    }
+
+    public int getOneAgentRate() {
+        return this.oneAgentRate;
+    }
+
+    public void setCurrentLoad(int currentLoad) {
+        this.currentLoad = currentLoad;
+    }
+
+    public int getCurrentLoad() {
+        return this.currentLoad;
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 
     private static class TestCache {
@@ -135,7 +174,7 @@ public class ConstantLoad implements RunMode {
         }
     }
 
-    private boolean isVariableLoad() {
+    public boolean isVariableLoad() {
         return start != -1 && end != -1;
     }
 
@@ -155,6 +194,22 @@ public class ConstantLoad implements RunMode {
         }
     }
 
+    public void addRunMaps(long nr) {
+        for (long i = 0; i < nr; i++) {
+            synchronized (runMaps) {
+                runMaps.add(phase.getPublishMode().getRunMap().newInstance());
+            }
+        }
+    }
+
+    public void removeRunMaps(long nr) {
+        for (long i = 0; i < nr; i++) {
+            synchronized (runMaps) {
+                this.runMaps.remove(0);
+            }
+        }
+    }
+
     @Override
     public void runTests(Engine engine) {
         checkInvalidArgs();
@@ -169,11 +224,7 @@ public class ConstantLoad implements RunMode {
             load = Math.max(start, end);
         }
 
-        for(int i = 0; i < load; i++) {
-            synchronized (runMaps) {
-                runMaps.add(phase.getPublishMode().getRunMap().newInstance());
-            }
-        }
+        addRunMaps(load);
 
         this.scheduler = new AsyncTestWorkerScheduler(engine);
         executorService.execute(scheduler);
@@ -193,9 +244,27 @@ public class ConstantLoad implements RunMode {
 
             @Override
             public boolean isRunFinished() {
-                return scheduler.isFinished();
+                return scheduler != null && scheduler.isFinished();
             }
         };
+    }
+
+    @Override
+    public RunModeBalancer<ConstantLoad> getRunModeBalancer() {
+        return this.runModeBalancer;
+    }
+
+    public void setInitialDelay(long initialDelay) {
+        this.initialDelay = initialDelay;
+    }
+
+    public void setOneAgentRate(int oneAgentRate) {
+        this.oneAgentRate = oneAgentRate;
+    }
+
+    @Override
+    public RunModeSplitter<ConstantLoad> getRunModeSplitter() {
+        return this.runModeSplitter;
     }
 
     @Override
@@ -229,6 +298,10 @@ public class ConstantLoad implements RunMode {
             }
         }
 
+    }
+
+    private Runnable getRunnableToSchedule() {
+        return this.scheduler.getRunnableToSchedule(new MutableLong((initialDelay + interval) / 1000));
     }
 
     private class AsyncTestWorkerImpl extends AsyncTestWorker {
@@ -269,98 +342,136 @@ public class ConstantLoad implements RunMode {
         }
     }
 
+    public boolean cancelPeriodicTask() {
+        return this.scheduledFuture.cancel(true);
+    }
+
+    public void schedulePeriodicTask() {
+        this.runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(), 0,
+                GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
+    }
+
 
     private class AsyncTestWorkerScheduler extends AsyncEngineWorker {
         private Engine engine;
+
         public AsyncTestWorkerScheduler(Engine engine) {
             this.engine = engine;
         }
 
-        private void configureRateAndInterval(MutableLong secondsLeft) {
+        private void configureRateAndInterval() {
             //the difference from the beginning load to the end one
             int loadDifference = Math.abs(end - start);
 
             // suppose load will increase by second
-            secondsLeft.setValue(1);
-            rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
-                    / phase.getDuration());
+            long newInterval = 1;
+            rate = (int)Math.floor(1.0 * newInterval* loadDifference
+                    / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
 
             // if the rate becomes too small, increase the interval at which the load is increased
             while (rate < 1) {
-                secondsLeft.increment();
-                rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
-                        / phase.getDuration());
+                newInterval += 1;
+                rate = (int)Math.floor(1.0 * newInterval * loadDifference
+                        / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
             }
 
-            interval = secondsLeft.getValue();
+            interval = newInterval * 1000; // set interval in milliseconds
+        }
+
+        public Runnable getRunnableToSchedule(MutableLong secondsLeft) {
+            return () -> {
+                if (!isFinished()) {
+                    try {
+                        // run the current run with the current load
+                        runRound();
+                        secondsLeft.decrement();
+
+                        rampUp(secondsLeft);
+
+                        rampDown(secondsLeft);
+
+                    } catch (InterruptedException e) {
+                        finishExecution();
+                        LOG.warn("Constant load scheduler thread was interrupted.");
+
+                        // gracefully shut down scheduler
+                        runRoundScheduler.shutdownNow();
+                    }
+                }
+            };
         }
 
         @Override
         public void run() {
-            try {
-                currentLoad = load;
-                MutableLong secondsLeft = new MutableLong(interval);
+            currentLoad = load;
 
-                // if the rate was not specified and start and end were
-                if (isVariableLoad()) {
-                    if (rate == -1) {
-                        configureRateAndInterval(secondsLeft);
-                    }
-
-                    currentLoad = start;
+            // if the rate was not specified and start and end were
+            if (isVariableLoad()) {
+                if (rate == -1) {
+                    configureRateAndInterval();
                 }
 
-                while (!isFinished()) {
-                    // run the current run with the current load
-                    runRound();
-
-                    secondsLeft.decrement();
-
-                    // ramp up the load if 'start' was specified
-                    rampUp(secondsLeft);
-
-                    // ramp down the load if 'end' was specified
-                    rampDown(secondsLeft);
-                }
-            } catch (InterruptedException e) {
-                finishExecution();
-                LOG.warn("Constant load scheduler thread was interrupted.");
+                currentLoad = start;
             }
+
+
+            MutableLong secondsLeft = new MutableLong((interval +  initialDelay) / 1000);
+            LOG.info("Seconds left is " + secondsLeft.getValue() + "s");
+
+            scheduledFuture = runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(secondsLeft),
+                    0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
+
         }
 
         private void rampUp(MutableLong secondsLeft) {
-            if (currentLoad == end) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate >= end + oneAgentRate))) {
+                LOG.info("[ramp up] Execution finished...");
                 finishExecution();
             }
 
             // if 'interval' has passed and the current load is still below 'end',
             // increase the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad < end) {
-                secondsLeft.setValue(interval);
+
+                LOG.info("Ramping up...");
+                LOG.info("[ramping up] Current load is " + currentLoad);
                 currentLoad += rate;
                 LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad > end) {
                     currentLoad = end;
                 }
+
+                LOG.info("[ramping up] New load is " + currentLoad);
+                secondsLeft.setValue(interval / 1000);
             }
         }
 
         private void rampDown(MutableLong secondsLeft) {
-            if (currentLoad == end) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
+                LOG.info("[ramp down] Execution finished...");
+
                 finishExecution();
             }
+
+            LOG.info("[rampDown] end is " + end + " secondsleft is " + secondsLeft.getValue() + " currentLoad is " +
+                    currentLoad);
 
             // if 'interval' has passed and the currentLoad is still above 'end',
             // decrease the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad > end) {
-                secondsLeft.setValue(interval);
+                LOG.info("[rampDown] end is " + end);
+                LOG.info("Ramping down...");
+                LOG.info("[ramping up] Current load is " + currentLoad);
+
                 currentLoad -= rate;
                 LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad < end) {
                     currentLoad = end;
                 }
+
+                secondsLeft.setValue(interval / 1000);
             }
         }
 
@@ -399,10 +510,11 @@ public class ConstantLoad implements RunMode {
                     testWorkers.add(worker);
                 }
             }
-
-            //TODO use this
-            Thread.sleep(1000);
         }
+    }
+
+    public long getInitialDelay() {
+        return this.initialDelay;
     }
 
     @Override

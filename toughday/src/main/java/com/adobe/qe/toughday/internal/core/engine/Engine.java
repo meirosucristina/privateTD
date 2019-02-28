@@ -411,7 +411,7 @@ public class Engine {
             }
 
             RunMode currentRunmode = phase.getRunMode();
-            Long currentDuration = phase.getDuration();
+            Long currentDuration = GlobalArgs.parseDurationToSeconds(phase.getDuration());
 
             currentRunmode.runTests(this);
             long start = System.currentTimeMillis();
@@ -532,7 +532,11 @@ public class Engine {
     }
 
     public Phase getCurrentPhase() {
-        return currentPhase;
+        currentPhaseLock.readLock().lock();
+        Phase phase = currentPhase;
+        currentPhaseLock.readLock().unlock();
+
+        return phase;
     }
 
     public ReadWriteLock getCurrentPhaseLock() {
