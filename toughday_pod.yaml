@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test: liveness
+  name: toughday-on-k8s
+spec:
+  containers:
+  - name: toughday-container
+    image: toughdaycr.azurecr.io/docker:latest
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 4567
+      initialDelaySeconds: 20
+      periodSeconds: 3
+  imagePullSecrets:
+  - name: regcred
+
