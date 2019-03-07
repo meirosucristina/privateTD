@@ -17,6 +17,7 @@ import com.adobe.qe.toughday.api.core.Publisher;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.metrics.Name;
 import com.adobe.qe.toughday.metrics.Timestamp;
+import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -59,6 +60,7 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     private boolean saveConfig = Boolean.parseBoolean(DEFAULT_SAVE_CONFIG);
     private boolean showSteps = false;
     private boolean hostValidationEnabled = true;
+    private boolean distributedMode = true;
     private String logPath;
 
     /**
@@ -368,6 +370,16 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     @ConfigArgGet
     public String getLogPath() {
         return logPath;
+    }
+
+    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, runs toughday distributed on Kubernetes.")
+    public void setDistributedMode(String distributedMode) {
+        this.distributedMode = Boolean.parseBoolean(distributedMode);
+    }
+
+    @ConfigArgGet
+    public boolean getDistributedMode() {
+        return this.distributedMode;
     }
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOG_PATH, desc = "The path where the logs folder will be created.")
