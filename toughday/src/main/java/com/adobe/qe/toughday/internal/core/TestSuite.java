@@ -21,7 +21,7 @@ import java.util.*;
 /**
  * Test suite class.
  */
-public class TestSuite {
+public class TestSuite implements Cloneable {
     private List<SuiteSetup> setupStep;
     private String description = "";
     private List<String> tags = new ArrayList<>();
@@ -37,6 +37,25 @@ public class TestSuite {
         setupStep = new ArrayList<>();
         orderedTests = new ArrayList<>();
         totalWeight = 0;
+    }
+
+    public TestSuite clone() {
+        TestSuite newInstance = null;
+
+        try {
+            newInstance = (TestSuite) super.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+
+        /* clone all the tests in the TestSuite */
+        newInstance.orderedTests = new ArrayList<>();
+        newInstance.nameMap = new HashMap<>();
+        for (AbstractTest test : this.getTests()) {
+            newInstance.add(test.clone());
+        }
+
+        return newInstance;
     }
 
     /**

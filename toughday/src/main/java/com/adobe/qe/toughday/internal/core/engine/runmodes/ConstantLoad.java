@@ -32,7 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Description(desc = "Generates a constant load of test executions, regardless of their execution time.")
-public class ConstantLoad implements RunMode {
+public class ConstantLoad implements RunMode, Cloneable {
     private static final Logger LOG = LoggerFactory.getLogger(ConstantLoad.class);
 
     private static final String DEFAULT_LOAD_STRING = "50";
@@ -196,6 +196,53 @@ public class ConstantLoad implements RunMode {
                 return scheduler.isFinished();
             }
         };
+    }
+
+    @Override
+    public List<RunMode> distributeRunMode(int nrAgents) {
+        List<RunMode> runModes = new ArrayList<>();
+        ConstantLoad taskRunMode =  null;
+
+        for (int i = 0; i < 2; i++) {
+            try {
+                taskRunMode = (ConstantLoad) this.clone();
+            } catch (CloneNotSupportedException e) {
+                e.printStackTrace();
+            }
+
+            if (isVariableLoad()) {
+                /* we must distribute the start nr of threads between the agents and to
+                adjust the rate to the nr of agents. */
+                if (i % 2 == 0) {
+                    taskRunMode.setStart(String.valueOf(this.getStart() / nrAgents));
+                    taskRunMode.setRate(String.valueOf(this.getRate() / nrAgents));
+                    taskRunMode.setEnd(String.valueOf(this.getEnd() / nrAgents));
+                } else {
+                    taskRunMode.setStart(String.valueOf(this.getStart() / nrAgents +
+                            this.getStart() % nrAgents));
+                    taskRunMode.setRate(String.valueOf(this.getRate() / nrAgents +
+                            this.getRate() % nrAgents));
+                    taskRunMode.setEnd(String.valueOf(this.getEnd() / nrAgents +
+                            this.getEnd() % nrAgents));
+                }
+            } else {
+                /* we must distribute the load between the agents */
+                if (i % 2 == 0) {
+                    taskRunMode.setLoad(String.valueOf(this.getLoad() / nrAgents));
+                } else {
+                    taskRunMode.setLoad(String.valueOf(this.getLoad() / nrAgents +
+                            this.getLoad() % nrAgents));
+                }
+            }
+
+            if (i % 2 == 0) {
+                runModes.addAll(Collections.nCopies(nrAgents - 1, taskRunMode));
+            } else {
+                runModes.add(taskRunMode);
+            }
+        }
+
+        return runModes;
     }
 
     @Override

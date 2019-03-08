@@ -25,7 +25,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 @Description(desc = "Runs tests normally.")
-public class Normal implements RunMode {
+public class Normal implements RunMode, Cloneable {
     private static final Logger LOG = LoggerFactory.getLogger(Normal.class);
 
     private static final int EPS = 1;
@@ -295,6 +295,54 @@ public class Normal implements RunMode {
         }
 
         return context;
+    }
+
+    @Override
+    public List<RunMode> distributeRunMode(int nrAgents) {
+        List<RunMode> taskRunModes = new ArrayList<>();
+        Normal clone = null;
+
+        for (int i = 0; i < 2; i++) {
+            try {
+                clone = (Normal) this.clone();
+            } catch (CloneNotSupportedException e) {
+                e.printStackTrace();
+            }
+            
+            if (isVariableConcurrency()) {
+                /* we must distribute the start nr of threads between the agents and to
+                adjust the rate to the nr of agents. */
+                if (i % 2 == 0) {
+                    clone.setStart(String.valueOf(this.getStart() / nrAgents));
+                    clone.setRate(String.valueOf(this.getRate() / nrAgents));
+                    clone.setEnd(String.valueOf(this.getEnd() / nrAgents));
+                } else {
+                    clone.setStart(String.valueOf(this.getStart() / nrAgents +
+                            this.getStart() % nrAgents));
+                    clone.setRate(String.valueOf(this.getRate() / nrAgents +
+                            this.getRate() % nrAgents));
+                    clone.setEnd(String.valueOf(this.getEnd() / nrAgents +
+                            this.getEnd() % nrAgents));
+                }
+            } else {
+                /* we must distribute the concurrency level */
+                if (i % 2 == 0) {
+                    clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents));
+                } else {
+                    clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents +
+                            clone.getConcurrency() % nrAgents));
+                }
+
+            }
+
+            if (i % 2 == 0) {
+                taskRunModes.addAll(Collections.nCopies(nrAgents - 1, clone));
+            } else {
+                taskRunModes.add(clone);
+            }
+        }
+
+        return taskRunModes;
     }
 
     @Override
