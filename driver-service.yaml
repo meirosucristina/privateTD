@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: driver
+  labels:
+    app: driver-service
+spec:
+  ports:
+  - port: 4567
+    protocol: TCP
+  selector:
+    app: driver

@@ -60,7 +60,8 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     private boolean saveConfig = Boolean.parseBoolean(DEFAULT_SAVE_CONFIG);
     private boolean showSteps = false;
     private boolean hostValidationEnabled = true;
-    private boolean distributedMode = true;
+    private boolean distributedMode = false;
+    private boolean k8sAgent = false;
     private String logPath;
 
     /**
@@ -380,6 +381,15 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     @ConfigArgGet
     public boolean getDistributedMode() {
         return this.distributedMode;
+    }
+
+    @ConfigArgGet
+    public boolean getK8sAgent() { return this.k8sAgent; }
+
+    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a K8s agent, waiting to receive a task" +
+            "from the driver.")
+    public void setK8sAgent(String k8sAgent) {
+        this.k8sAgent = Boolean.parseBoolean(k8sAgent);
     }
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOG_PATH, desc = "The path where the logs folder will be created.")

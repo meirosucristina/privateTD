@@ -15,6 +15,8 @@ package com.adobe.qe.toughday;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.k8s.Agent;
+import com.adobe.qe.toughday.internal.core.k8s.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import static spark.Spark.*;
@@ -50,6 +52,17 @@ public class Main {
                 System.out.println();
                 cliParser.printShortHelp();
                 System.exit(1);
+            }
+
+            /* check if TD runs as an Agent in K8s */
+            if (configuration.getGlobalArgs().getK8sAgent()) {
+                Agent agent = new Agent();
+                agent.start();
+                System.exit(0);
+            } else if (configuration.getGlobalArgs().getDistributedMode()) { /* run TD as an K8s Driver */
+                Driver driver = new Driver();
+                driver.run();
+                System.exit(0);
             }
 
             Engine engine = new Engine(configuration);

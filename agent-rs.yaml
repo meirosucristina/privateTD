@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: ReplicaSet
+metadata:
+  name: agent
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels: 
+        app: agent
+    spec:
+      containers:
+      - name: agent-container
+        image: "toughdaycr.azurecr.io/agent:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 4567
+          initialDelaySeconds: 20
+          periodSeconds: 3
+      imagePullSecrets:
+      - name: regcred
