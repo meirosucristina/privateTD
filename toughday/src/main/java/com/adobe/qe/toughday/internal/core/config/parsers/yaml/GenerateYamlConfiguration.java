@@ -43,6 +43,7 @@ public class GenerateYamlConfiguration {
     private static final String DEFAULT_YAML_CONFIGURATION_FILENAME = "toughday_";
     private static final String DEFAULT_YAML_EXTENSION = ".yaml";
     private static final String TIMESTAMP = Timestamp.START_TIME;
+    public static final String yamlConfigFilename = DEFAULT_YAML_CONFIGURATION_FILENAME + TIMESTAMP + DEFAULT_YAML_EXTENSION;
 
     public GenerateYamlConfiguration(ConfigParams configParams, Map<String, Class> items) {
         this.configParams = configParams;
@@ -200,11 +201,11 @@ public class GenerateYamlConfiguration {
      */
     public void createYamlConfigurationFile() {
 
-        final String filename = DEFAULT_YAML_CONFIGURATION_FILENAME + TIMESTAMP + DEFAULT_YAML_EXTENSION;
+        //final String filename = DEFAULT_YAML_CONFIGURATION_FILENAME + TIMESTAMP + DEFAULT_YAML_EXTENSION;
 
         FileWriter fileWriter = null;
         try {
-            fileWriter = new FileWriter(filename);
+            fileWriter = new FileWriter(yamlConfigFilename);
         } catch (IOException e) {
             e.printStackTrace();
         }

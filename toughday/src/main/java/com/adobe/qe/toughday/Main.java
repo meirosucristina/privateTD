@@ -59,7 +59,8 @@ public class Main {
                 Agent agent = new Agent();
                 agent.start();
                 System.exit(0);
-            } else if (configuration.getGlobalArgs().getDistributedMode()) { /* run TD as an K8s Driver */
+            } else if (configuration.getGlobalArgs().getDriverMode()) {
+                /* launch a new driver component in the cluster. */
                 Driver driver = new Driver();
                 driver.run();
                 System.exit(0);

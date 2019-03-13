@@ -17,6 +17,7 @@ import com.adobe.qe.toughday.api.core.Publisher;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.metrics.Name;
 import com.adobe.qe.toughday.metrics.Timestamp;
+import com.google.gson.annotations.Expose;
 import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +29,7 @@ import java.util.*;
  * Class for global arguments.
  */
 public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalArgs {
-    private static final Logger LOGGER = LogManager.getLogger(GlobalArgs.class);
+    private @Expose static final Logger LOGGER = LogManager.getLogger(GlobalArgs.class);
 
     public static final String DEFAULT_DURATION = "1d";
     public static final String DEFAULT_USER = "admin";
@@ -62,6 +63,7 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     private boolean hostValidationEnabled = true;
     private boolean distributedMode = false;
     private boolean k8sAgent = false;
+    private boolean driverMode = false;
     private String logPath;
 
     /**
@@ -390,6 +392,17 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
             "from the driver.")
     public void setK8sAgent(String k8sAgent) {
         this.k8sAgent = Boolean.parseBoolean(k8sAgent);
+    }
+
+    @ConfigArgGet
+    public boolean getDriverMode() {
+        return this.driverMode;
+    }
+
+    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a driver in the cluster, distributing the " +
+            "work between the agents.")
+    public void setDriverMode(String driverMode) {
+        this.driverMode = Boolean.parseBoolean(driverMode);
     }
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOG_PATH, desc = "The path where the logs folder will be created.")
