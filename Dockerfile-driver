@@ -6,4 +6,4 @@ COPY toughday/target/toughday2-driver.jar /toughday
 
 WORKDIR "/toughday"
 
-CMD java -jar toughday2-driver.jar --host=10.244.1.40 --distributedmode=true
+CMD java -jar toughday2-driver.jar --host=10.244.1.40 --drivermode=true

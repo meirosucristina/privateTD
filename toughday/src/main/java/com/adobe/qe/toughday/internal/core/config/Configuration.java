@@ -39,7 +39,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.LoggerConfig;
-import org.json.simple.JSONValue;
 import org.reflections.Reflections;
 import org.yaml.snakeyaml.Yaml;
 
@@ -143,17 +142,18 @@ public class Configuration {
         return jarFiles;
     }
 
-    private String convertToJson() {
+    private String getYamlConfiguration() {
         Yaml yaml= new Yaml();
-        Object obj = null;
 
         try {
-            obj = yaml.load(new FileInputStream(GenerateYamlConfiguration.yamlConfigFilename));
+            //obj = yaml.load(new FileInputStream(GenerateYamlConfiguration.yamlConfigFilename));
+            String yamlConfig = yaml.dump(yaml.load(new FileInputStream(GenerateYamlConfiguration.yamlConfigFilename)));
+            return yamlConfig;
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         }
 
-        return JSONValue.toJSONString(obj);
+        return null;
 
     }
 
@@ -238,22 +238,24 @@ public class Configuration {
             GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
             generateYaml.createYamlConfigurationFile();
 
-            String jsonConfiguration = convertToJson();
-            System.out.println(jsonConfiguration);
+            String yamlConfiguration = getYamlConfiguration();
+            System.out.println(yamlConfiguration);
 
             /* build HTTP query with json body */
             HttpClient httpClient = HttpClientBuilder.create().build();
             HttpPost request = new HttpPost("http://driver:4567/submitConfig");
-            StringEntity params = new StringEntity(jsonConfiguration);
+            StringEntity params = new StringEntity(yamlConfiguration);
             request.setEntity(params);
-            request.setHeader("Content-type", "application/json");
+            request.setHeader("Content-type", "text/plain");
 
-            System.out.println("Submitting request\n");
             /* submit request and check response code */
             HttpResponse response = httpClient.execute(request);
 
             System.out.println("Response code is " + response.getStatusLine().getStatusCode());
-            System.exit(0);
+            while(true) {
+
+            }
+            // System.exit(0);
         }
 
         configureLogPath(globalArgs.getLogPath());
