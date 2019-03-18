@@ -17,8 +17,6 @@ import com.adobe.qe.toughday.api.core.Publisher;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.metrics.Name;
 import com.adobe.qe.toughday.metrics.Timestamp;
-import com.google.gson.annotations.Expose;
-import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,7 +27,7 @@ import java.util.*;
  * Class for global arguments.
  */
 public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalArgs {
-    private @Expose static final Logger LOGGER = LogManager.getLogger(GlobalArgs.class);
+    private static final Logger LOGGER = LogManager.getLogger(GlobalArgs.class);
 
     public static final String DEFAULT_DURATION = "1d";
     public static final String DEFAULT_USER = "admin";
@@ -111,7 +109,6 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
         long finalDuration = 0l;
         long intermDuration = 0l;
 
-        //if time unit is not specified, consider it seconds by default.
         if (duration.matches("^[0-9]+$")) {
             throw new IllegalArgumentException("Time unit is not specified");
         }

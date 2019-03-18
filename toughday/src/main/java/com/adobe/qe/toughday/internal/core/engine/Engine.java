@@ -411,7 +411,7 @@ public class Engine {
             }
 
             RunMode currentRunmode = phase.getRunMode();
-            Long currentDuration = phase.getDuration();
+            Long currentDuration = GlobalArgs.parseDurationToSeconds(phase.getDuration());
 
             currentRunmode.runTests(this);
             long start = System.currentTimeMillis();

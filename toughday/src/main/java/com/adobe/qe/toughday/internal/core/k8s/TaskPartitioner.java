@@ -9,18 +9,24 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Class responsible for dividing each phase into multiple tasks to be distributed between the
+ * Class responsible for dividing phases into multiple tasks to be distributed between the
  * agents running in the K8s cluster.
  */
 public class TaskPartitioner {
 
-    public List<Phase> splitPhase(Phase phase, int nrAgents) throws CloneNotSupportedException {
+    /**
+     * Knows how to divide a phase into a number of tasks equal to the number of agents running in the cluster.
+     * @param phase the phase to be partitioned into tasks.
+     * @param agents list with all the agents able to receive a task and to execute it.
+     * @throws CloneNotSupportedException if the phase is not cloneable.
+     */
+    public Map<String, Phase> splitPhase(Phase phase, List<String> agents) throws CloneNotSupportedException {
+        Map<String, Phase> taskPerAgent = new HashMap<>();
+
         List<Phase> partitions = new ArrayList<>();
-        List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(nrAgents);
+        List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(agents.size());
 
         for (int i = 0; i < 2; i++) {
-
-            //Phase taskPhase = Phase.copy(Phase.class, phase);
             Phase taskPhase = (Phase) phase.clone();
 
             /* change count property for each test in the test suite */
@@ -29,10 +35,10 @@ public class TaskPartitioner {
 
             for (AbstractTest test : taskTestSuite.getTests()) {
                if (i % 2 == 0) {
-                   newCounts.put(test, new AtomicLong(test.getCount() / nrAgents));
+                   newCounts.put(test, new AtomicLong(test.getCount() / agents.size()));
                    test.setCount(String.valueOf(newCounts.get(test)));
                } else {
-                   newCounts.put(test, new AtomicLong(test.getCount() / nrAgents + test.getCount() % nrAgents));
+                   newCounts.put(test, new AtomicLong(test.getCount() / agents.size() + test.getCount() % agents.size()));
                    test.setCount(String.valueOf(newCounts.get(test)));
                }
             }
@@ -45,13 +51,17 @@ public class TaskPartitioner {
 
             /* add task to partition set */
             if (i % 2 == 0) {
-                partitions.addAll(Collections.nCopies(nrAgents - 1, taskPhase));
+                partitions.addAll(Collections.nCopies(agents.size() - 1, taskPhase));
             } else {
                 partitions.add(taskPhase);
             }
 
         }
 
-        return partitions;
+        for (int i = 0; i < agents.size(); i++) {
+            taskPerAgent.put(agents.get(i), partitions.get(i));
+        }
+
+        return taskPerAgent;
     }
 }

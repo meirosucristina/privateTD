@@ -77,8 +77,8 @@ public class Phase implements Cloneable {
     }
 
     @ConfigArgGet
-    public Long getDuration() {
-        return duration;
+    public String getDuration() {
+        return duration == null ? null : String.valueOf(duration) + 's';
     }
 
     @ConfigArgSet(required = false, desc = "The duration of the current phase.")

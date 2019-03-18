@@ -11,6 +11,7 @@ governing permissions and limitations under the License.
 */
 package com.adobe.qe.toughday.metrics;
 
+import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.Description;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.api.core.RunMap;
@@ -26,6 +27,11 @@ public class Percentile extends Metric {
             this.name = value + "p";
         }
         return this;
+    }
+
+    @ConfigArgGet
+    public String getValue() {
+        return String.valueOf(this.value) + 'p';
     }
 
     @Override

@@ -109,8 +109,8 @@ public class Normal implements RunMode, Cloneable {
     }
 
     @ConfigArgGet
-    public long getInterval() {
-        return interval;
+    public String getInterval() {
+        return String.valueOf(this.interval) + 's';
     }
 
     @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add threads.", defaultValue = DEFAULT_INTERVAL_STRING)
@@ -168,7 +168,7 @@ public class Normal implements RunMode, Cloneable {
         // namely every 'interval' milliseconds
         if (isVariableConcurrency()) {  // if start and end were provided
             if (rate == -1) {
-                interval = (long)Math.floor(1000.0 * (phase.getDuration() - EPS)
+                interval = (long)Math.floor(1000.0 * (GlobalArgs.parseDurationToSeconds(phase.getDuration()) - EPS)
                         / (start < end? end - start : start - end));
                 rate = 1;
             }

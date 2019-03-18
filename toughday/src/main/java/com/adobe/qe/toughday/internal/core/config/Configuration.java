@@ -24,15 +24,11 @@ import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlParser;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.publishers.CSVPublisher;
 import com.adobe.qe.toughday.publishers.ConsolePublisher;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,7 +36,6 @@ import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.LoggerConfig;
 import org.reflections.Reflections;
-import org.yaml.snakeyaml.Yaml;
 
 import java.io.*;
 import java.lang.reflect.Constructor;
@@ -58,7 +53,7 @@ import java.util.jar.JarFile;
  * An object that has all that configurations parsed and objects instantiated.
  */
 public class Configuration {
-    private transient static final Logger LOGGER = LogManager.getLogger(Configuration.class);
+    private static final Logger LOGGER = LogManager.getLogger(Configuration.class);
 
     private static final String DEFAULT_RUN_MODE = "normal";
     private static final String DEFAULT_PUBLISH_MODE = "simple";
@@ -142,21 +137,6 @@ public class Configuration {
         return jarFiles;
     }
 
-    private String getYamlConfiguration() {
-        Yaml yaml= new Yaml();
-
-        try {
-            //obj = yaml.load(new FileInputStream(GenerateYamlConfiguration.yamlConfigFilename));
-            String yamlConfig = yaml.dump(yaml.load(new FileInputStream(GenerateYamlConfiguration.yamlConfigFilename)));
-            return yamlConfig;
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-
-    }
-
     /**
      *  Creates an URL for each jar file, using its filename.
      * @param extensionsFileNames
@@ -213,50 +193,46 @@ public class Configuration {
         return classLoader;
     }
 
+    public Configuration(String yamlConfig)
+            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IOException, IllegalAccessException {
+        ConfigParams configParams = new YamlParser().parse(yamlConfig);
+        buildConfiguration(configParams);
+    }
 
     public Configuration(String[] cmdLineArgs)
             throws IllegalAccessException, InstantiationException, InvocationTargetException, NoSuchMethodException, IOException {
         ConfigParams configParams = collectConfigurations(cmdLineArgs);
+        buildConfiguration(configParams);
+
+    }
+
+    private boolean executeInDitributedMode(ConfigParams configParams) {
+        return configParams.getGlobalParams().containsKey("distributedmode") && (
+                boolean) configParams.getGlobalParams().get("distributedmode");
+    }
+
+    private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
         ConfigParams copyOfConfigParams = ConfigParams.deepClone(configParams);
         Map<String, Class> items = new HashMap<>();
+
+        /* check if we should trigger an execution query in the K8S cluster. */
+        if (executeInDitributedMode(configParams)) {
+            GenerateYamlConfiguration generateYaml =  new GenerateYamlConfiguration(copyOfConfigParams, items);
+            generateYaml.getGlobals().remove("distributedmode");
+            new ExecutionTrigger(generateYaml.createYamlStringRepresentation()).triggerExecution();
+        }
 
         // we should load extensions before any configuration object is created.
         handleExtensions(configParams);
 
         Map<String, Object> globalArgsMeta = configParams.getGlobalParams();
         for (String helpOption : CliParser.availableHelpOptions) {
-           if (globalArgsMeta.containsKey(helpOption)) {
-               return;
-           }
+            if (globalArgsMeta.containsKey(helpOption)) {
+                return;
+            }
         }
 
         this.globalArgs = createObject(GlobalArgs.class, globalArgsMeta);
-
-        if (this.globalArgs.getDistributedMode()) {
-            System.out.println("Building request for driver\n");
-            /* send query to TD agent and finish execution */
-            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
-            generateYaml.createYamlConfigurationFile();
-
-            String yamlConfiguration = getYamlConfiguration();
-            System.out.println(yamlConfiguration);
-
-            /* build HTTP query with json body */
-            HttpClient httpClient = HttpClientBuilder.create().build();
-            HttpPost request = new HttpPost("http://driver:4567/submitConfig");
-            StringEntity params = new StringEntity(yamlConfiguration);
-            request.setEntity(params);
-            request.setHeader("Content-type", "text/plain");
-
-            /* submit request and check response code */
-            HttpResponse response = httpClient.execute(request);
-
-            System.out.println("Response code is " + response.getStatusLine().getStatusCode());
-            while(true) {
-
-            }
-            // System.exit(0);
-        }
 
         configureLogPath(globalArgs.getLogPath());
 
@@ -274,9 +250,10 @@ public class Configuration {
 
         // Check if we should create a configuration file for this run.
         if (this.getGlobalArgs().getSaveConfig()) {
-            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
+            GenerateYamlConfiguration generateYaml =  new GenerateYamlConfiguration(copyOfConfigParams, items);
             generateYaml.createYamlConfigurationFile();
         }
+
         objects = null;
     }
 
@@ -441,6 +418,10 @@ public class Configuration {
         }
     }
 
+    public void setPhases(List<Phase> phases) {
+        this.phases = phases;
+    }
+
     private void configureDurationForPhases() {
         long durationLeft = globalArgs.getDuration();
 
@@ -450,7 +431,7 @@ public class Configuration {
             if (phase.getDuration() == null) {
                 phasesWithoutDuration.add(phase);
             } else {
-                durationLeft -= phase.getDuration();
+                durationLeft -= GlobalArgs.parseDurationToSeconds(phase.getDuration());
             }
         }
 

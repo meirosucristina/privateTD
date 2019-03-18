@@ -51,6 +51,7 @@ public class TestSuite implements Cloneable {
         /* clone all the tests in the TestSuite */
         newInstance.orderedTests = new ArrayList<>();
         newInstance.nameMap = new HashMap<>();
+
         for (AbstractTest test : this.getTests()) {
             newInstance.add(test.clone());
         }

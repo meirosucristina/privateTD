@@ -26,11 +26,19 @@ public class YamlDumpPhase {
     private Map<String, Object> runmode;
     private Map<String, Object> publishmode;
 
+    private boolean wasPropertyConfigured(Map<String, Object> properties, String propertyName) {
+        return properties.containsKey(propertyName) && properties.get(propertyName) != null;
+    }
+
     public YamlDumpPhase(Map<String, Object> properties, Map<String, Object> runmode, Map<String, Object> publishmode) {
-        this.name = properties.containsKey("name") ? properties.get("name").toString() : null;
-        this.measurable = properties.containsKey("measurable") ? (Boolean)(properties.get("measurable")) : null;
-        this.useconfig = properties.containsKey("useconfig") ? properties.get("useconfig").toString() : null;
-        this.duration = properties.containsKey("duration") ? properties.get("duration").toString() : null;
+        this.name = wasPropertyConfigured(properties, "name") ?
+                properties.get("name").toString() : null;
+        this.measurable = wasPropertyConfigured(properties,"measurable") ?
+                (Boolean)(properties.get("measurable")) : null;
+        this.useconfig = wasPropertyConfigured(properties, "useconfig") ?
+                properties.get("useconfig").toString() : null;
+        this.duration = wasPropertyConfigured(properties, "duration")
+                ? properties.get("duration").toString() : null;
         this.runmode = runmode;
         this.publishmode = publishmode;
     }

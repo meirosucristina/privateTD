@@ -330,13 +330,13 @@ public class ConstantLoad implements RunMode, Cloneable {
             // suppose load will increase by second
             secondsLeft.setValue(1);
             rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
-                    / phase.getDuration());
+                    / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
 
             // if the rate becomes too small, increase the interval at which the load is increased
             while (rate < 1) {
                 secondsLeft.increment();
                 rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
-                        / phase.getDuration());
+                        / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
             }
 
             interval = secondsLeft.getValue();
