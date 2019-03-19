@@ -52,6 +52,10 @@ public class ConstantLoad implements RunMode, Cloneable {
     private long interval = DEFAULT_INTERVAL;
     private int rate;
     private int currentLoad;
+    private long initialDelay = 0;
+    /* field used for checking the finish condition when running TD distributed on K8S with
+    the rate smaller than number of agents in the cluster. */
+    private int oneAgentRate = 0;
 
     private TestCache testCache;
     private Phase phase;
@@ -95,13 +99,13 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     @ConfigArgGet
-    public long getInterval() {
-        return interval;
+    public String getInterval() {
+        return String.valueOf(interval / 1000) + 's';
     }
 
     @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add increase the load.", defaultValue = DEFAULT_INTERVAL_STRING)
     public void setInterval(String interval) {
-        this.interval = GlobalArgs.parseDurationToSeconds(interval);
+        this.interval = GlobalArgs.parseDurationToSeconds(interval) * 1000;
     }
 
     @ConfigArgGet
@@ -115,6 +119,10 @@ public class ConstantLoad implements RunMode, Cloneable {
             checkNotNegative(Long.parseLong(end), "end");
         }
         this.end = Integer.valueOf(end);
+    }
+
+    public int getOneAgentRate() {
+        return this.oneAgentRate;
     }
 
     private static class TestCache {
@@ -198,48 +206,49 @@ public class ConstantLoad implements RunMode, Cloneable {
         };
     }
 
+    private ConstantLoad setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
+                                                        int startRemainder, int endRemainder,
+                                                        int loadRemainder, int agentId) {
+        ConstantLoad clone = null;
+        try {
+            clone = (ConstantLoad) this.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+
+        if (isVariableLoad()) {
+            if (this.rate > nrAgents) {
+                clone.setStart(String.valueOf(this.getStart() / nrAgents + startRemainder));
+                clone.setEnd(String.valueOf(this.getEnd() / nrAgents + endRemainder));
+                clone.setRate(String.valueOf(this.getRate() / nrAgents + rateRemainder));
+            } else {
+                clone.initialDelay = agentId * this.interval;
+                clone.oneAgentRate = this.rate;
+                clone.setStart(String.valueOf(this.start + agentId * this.rate));
+                clone.setRate(String.valueOf(nrAgents * this.rate));
+                clone.setInterval(String.valueOf(this.interval / 1000 * nrAgents) + 's');
+            }
+
+            return clone;
+        }
+
+        /* we must distribute the load between the agents */
+        clone.setLoad(String.valueOf(this.getLoad() / nrAgents + loadRemainder));
+
+        return clone;
+    }
+
     @Override
     public List<RunMode> distributeRunMode(int nrAgents) {
         List<RunMode> runModes = new ArrayList<>();
-        ConstantLoad taskRunMode =  null;
 
-        for (int i = 0; i < 2; i++) {
-            try {
-                taskRunMode = (ConstantLoad) this.clone();
-            } catch (CloneNotSupportedException e) {
-                e.printStackTrace();
-            }
+        ConstantLoad firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents,
+                this.start % nrAgents, this.end % nrAgents, this.load % nrAgents, 0);
+        runModes.add(firstTask);
 
-            if (isVariableLoad()) {
-                /* we must distribute the start nr of threads between the agents and to
-                adjust the rate to the nr of agents. */
-                if (i % 2 == 0) {
-                    taskRunMode.setStart(String.valueOf(this.getStart() / nrAgents));
-                    taskRunMode.setRate(String.valueOf(this.getRate() / nrAgents));
-                    taskRunMode.setEnd(String.valueOf(this.getEnd() / nrAgents));
-                } else {
-                    taskRunMode.setStart(String.valueOf(this.getStart() / nrAgents +
-                            this.getStart() % nrAgents));
-                    taskRunMode.setRate(String.valueOf(this.getRate() / nrAgents +
-                            this.getRate() % nrAgents));
-                    taskRunMode.setEnd(String.valueOf(this.getEnd() / nrAgents +
-                            this.getEnd() % nrAgents));
-                }
-            } else {
-                /* we must distribute the load between the agents */
-                if (i % 2 == 0) {
-                    taskRunMode.setLoad(String.valueOf(this.getLoad() / nrAgents));
-                } else {
-                    taskRunMode.setLoad(String.valueOf(this.getLoad() / nrAgents +
-                            this.getLoad() % nrAgents));
-                }
-            }
-
-            if (i % 2 == 0) {
-                runModes.addAll(Collections.nCopies(nrAgents - 1, taskRunMode));
-            } else {
-                runModes.add(taskRunMode);
-            }
+        for (int i = 1; i < nrAgents; i++) {
+            ConstantLoad task = setParamsForDistributedRunMode(nrAgents, 0, 0, 0, 0, i);
+            runModes.add(task);
         }
 
         return runModes;
@@ -342,8 +351,19 @@ public class ConstantLoad implements RunMode, Cloneable {
             interval = secondsLeft.getValue();
         }
 
+        private void initialDelay() {
+            try {
+                Thread.sleep(initialDelay);
+            } catch (InterruptedException e) {
+                LOG.warn("Initial delay should not be interrupted.");
+            }
+        }
+
         @Override
         public void run() {
+            /* wait for initial delay */
+            initialDelay();
+
             try {
                 currentLoad = load;
                 MutableLong secondsLeft = new MutableLong(interval);
@@ -376,7 +396,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
 
         private void rampUp(MutableLong secondsLeft) {
-            if (currentLoad == end) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate > end + oneAgentRate))) {
                 finishExecution();
             }
 
@@ -384,6 +404,7 @@ public class ConstantLoad implements RunMode, Cloneable {
             // increase the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad < end) {
                 secondsLeft.setValue(interval);
+
                 currentLoad += rate;
                 LOG.debug("Current load: " + currentLoad);
 
@@ -394,7 +415,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
 
         private void rampDown(MutableLong secondsLeft) {
-            if (currentLoad == end) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate < end - oneAgentRate))) {
                 finishExecution();
             }
 
@@ -402,6 +423,7 @@ public class ConstantLoad implements RunMode, Cloneable {
             // decrease the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad > end) {
                 secondsLeft.setValue(interval);
+
                 currentLoad -= rate;
                 LOG.debug("Current load: " + currentLoad);
 
@@ -450,6 +472,10 @@ public class ConstantLoad implements RunMode, Cloneable {
             //TODO use this
             Thread.sleep(1000);
         }
+    }
+
+    public long getInitialDelay() {
+        return this.initialDelay;
     }
 
     @Override

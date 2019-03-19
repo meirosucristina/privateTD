@@ -66,6 +66,9 @@ public class Main {
                 System.exit(0);
             }
 
+            Engine engine = new Engine(configuration);
+            engine.runTests();
+
             System.exit(0);
         } catch (Throwable t) {
             LOG.error("Error encountered: "

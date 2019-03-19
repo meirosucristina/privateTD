@@ -14,6 +14,34 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class TaskPartitioner {
 
+    private Phase setParamsForDistributedPhase(Phase phase, int nrAgents, RunMode runMode, boolean addRemainder)
+            throws CloneNotSupportedException {
+        Phase taskPhase = (Phase) phase.clone();
+
+        /* change count property for each test in the test suite */
+        Map<AbstractTest, AtomicLong> newCounts = new HashMap<>();
+        TestSuite taskTestSuite = phase.getTestSuite().clone();
+
+        for (AbstractTest test : taskTestSuite.getTests()) {
+            if (addRemainder) {
+                newCounts.put(test, new AtomicLong(test.getCount() / nrAgents + test.getCount() % nrAgents));
+                test.setCount(String.valueOf(newCounts.get(test)));
+
+            } else {
+                newCounts.put(test, new AtomicLong(test.getCount() / nrAgents));
+                test.setCount(String.valueOf(newCounts.get(test)));
+            }
+        }
+
+        taskPhase.setCounts(newCounts);
+        taskPhase.setTestSuite(taskTestSuite);
+
+        /* set new run mode for current phase */
+        taskPhase.setRunMode(runMode);
+
+        return taskPhase;
+    }
+
     /**
      * Knows how to divide a phase into a number of tasks equal to the number of agents running in the cluster.
      * @param phase the phase to be partitioned into tasks.
@@ -21,45 +49,20 @@ public class TaskPartitioner {
      * @throws CloneNotSupportedException if the phase is not cloneable.
      */
     public Map<String, Phase> splitPhase(Phase phase, List<String> agents) throws CloneNotSupportedException {
-        Map<String, Phase> taskPerAgent = new HashMap<>();
-
-        List<Phase> partitions = new ArrayList<>();
-        List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(agents.size());
-
-        for (int i = 0; i < 2; i++) {
-            Phase taskPhase = (Phase) phase.clone();
-
-            /* change count property for each test in the test suite */
-            Map<AbstractTest, AtomicLong> newCounts = new HashMap<>();
-            TestSuite taskTestSuite = phase.getTestSuite().clone();
-
-            for (AbstractTest test : taskTestSuite.getTests()) {
-               if (i % 2 == 0) {
-                   newCounts.put(test, new AtomicLong(test.getCount() / agents.size()));
-                   test.setCount(String.valueOf(newCounts.get(test)));
-               } else {
-                   newCounts.put(test, new AtomicLong(test.getCount() / agents.size() + test.getCount() % agents.size()));
-                   test.setCount(String.valueOf(newCounts.get(test)));
-               }
-            }
-
-            taskPhase.setCounts(newCounts);
-            taskPhase.setTestSuite(taskTestSuite);
-
-            /* set new run mode for current phase */
-            taskPhase.setRunMode(partitionRunModes.get(i));
-
-            /* add task to partition set */
-            if (i % 2 == 0) {
-                partitions.addAll(Collections.nCopies(agents.size() - 1, taskPhase));
-            } else {
-                partitions.add(taskPhase);
-            }
-
+        if (phase == null || agents == null) {
+            throw new IllegalArgumentException("Phase/List of agents must not be null");
         }
 
+        if (agents.isEmpty()) {
+            throw new IllegalStateException("At least one agent must be running in the cluster.");
+        }
+
+        Map<String, Phase> taskPerAgent = new HashMap<>();
+        List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(agents.size());
+
         for (int i = 0; i < agents.size(); i++) {
-            taskPerAgent.put(agents.get(i), partitions.get(i));
+            taskPerAgent.put(agents.get(i), setParamsForDistributedPhase(phase, agents.size(),
+                    partitionRunModes.get(i), i == 0));
         }
 
         return taskPerAgent;

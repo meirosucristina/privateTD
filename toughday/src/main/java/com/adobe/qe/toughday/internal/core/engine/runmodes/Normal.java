@@ -54,6 +54,7 @@ public class Normal implements RunMode, Cloneable {
     private long waitTime = DEFAULT_WAIT_TIME;
     private long interval = DEFAULT_INTERVAL;
     private int activeThreads = 0;
+    private long initialDelay = 0;
 
     private RunContext context = null;
 
@@ -110,7 +111,7 @@ public class Normal implements RunMode, Cloneable {
 
     @ConfigArgGet
     public String getInterval() {
-        return String.valueOf(this.interval) + 's';
+        return String.valueOf(this.interval / 1000) + 's';
     }
 
     @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add threads.", defaultValue = DEFAULT_INTERVAL_STRING)
@@ -228,7 +229,7 @@ public class Normal implements RunMode, Cloneable {
                         createAndExecuteWorker(engine, testSuite);
                     }
                 }
-            }, 0, interval, TimeUnit.MILLISECONDS);
+            }, this.initialDelay, interval, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -266,7 +267,7 @@ public class Normal implements RunMode, Cloneable {
                         }
                     }
                 }
-            }, 0, interval, TimeUnit.MILLISECONDS);
+            }, initialDelay, interval, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -297,49 +298,52 @@ public class Normal implements RunMode, Cloneable {
         return context;
     }
 
+    private Normal setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
+                                                   int endRemainder, int startRemainder,
+                                                   int concurrencyRemainder, int agentId) {
+        Normal clone = null;
+        try {
+            clone = (Normal) this.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+
+        if (isVariableConcurrency()) {
+            if (this.rate > nrAgents) {
+                clone.setRate(String.valueOf(this.getRate() / nrAgents + rateRemainder));
+                clone.setStart(String.valueOf(this.getStart() / nrAgents + startRemainder));
+                clone.setEnd(String.valueOf(this.getEnd() / nrAgents + endRemainder));
+            } else {
+                clone.initialDelay = agentId * this.interval;
+                clone.setInterval(String.valueOf(this.interval / 1000 * nrAgents) + 's');
+
+                if (agentId > 0) {
+                    clone.setStart("0");
+                    clone.setEnd(String.valueOf((this.end - this.start) / nrAgents));
+                } else {
+                    long diff = this.end - this.start;
+                    clone.setEnd(String.valueOf(diff / nrAgents + diff % nrAgents + this.start ));
+                }
+            }
+        } else {
+            /* we must distribute the concurrency level */
+            clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents + concurrencyRemainder));
+        }
+
+       return clone;
+    }
+
     @Override
     public List<RunMode> distributeRunMode(int nrAgents) {
         List<RunMode> taskRunModes = new ArrayList<>();
-        Normal clone = null;
 
-        for (int i = 0; i < 2; i++) {
-            try {
-                clone = (Normal) this.clone();
-            } catch (CloneNotSupportedException e) {
-                e.printStackTrace();
-            }
-            
-            if (isVariableConcurrency()) {
-                /* we must distribute the start nr of threads between the agents and to
-                adjust the rate to the nr of agents. */
-                if (i % 2 == 0) {
-                    clone.setStart(String.valueOf(this.getStart() / nrAgents));
-                    clone.setRate(String.valueOf(this.getRate() / nrAgents));
-                    clone.setEnd(String.valueOf(this.getEnd() / nrAgents));
-                } else {
-                    clone.setStart(String.valueOf(this.getStart() / nrAgents +
-                            this.getStart() % nrAgents));
-                    clone.setRate(String.valueOf(this.getRate() / nrAgents +
-                            this.getRate() % nrAgents));
-                    clone.setEnd(String.valueOf(this.getEnd() / nrAgents +
-                            this.getEnd() % nrAgents));
-                }
-            } else {
-                /* we must distribute the concurrency level */
-                if (i % 2 == 0) {
-                    clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents));
-                } else {
-                    clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents +
-                            clone.getConcurrency() % nrAgents));
-                }
+        Normal firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents, this.end % nrAgents,
+                this.start % nrAgents, this.concurrency % nrAgents, 0);
+        taskRunModes.add(firstTask);
 
-            }
-
-            if (i % 2 == 0) {
-                taskRunModes.addAll(Collections.nCopies(nrAgents - 1, clone));
-            } else {
-                taskRunModes.add(clone);
-            }
+        for (int i = 1; i < nrAgents; i++) {
+            Normal task = setParamsForDistributedRunMode(nrAgents, 0, 0, 0, 0, i);
+            taskRunModes.add(task);
         }
 
         return taskRunModes;
@@ -472,6 +476,10 @@ public class Normal implements RunMode, Cloneable {
         public boolean hasExited() {
             return exited;
         }
+    }
+
+    public long getInitialDelay() {
+        return this.initialDelay;
     }
 
 
