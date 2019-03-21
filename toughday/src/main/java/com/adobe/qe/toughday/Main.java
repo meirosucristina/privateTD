@@ -19,6 +19,8 @@ import com.adobe.qe.toughday.internal.core.k8s.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
+
 import static spark.Spark.*;
 
 /**
@@ -39,6 +41,15 @@ public class Main {
         CliParser cliParser = new CliParser();
         System.out.println();
 
+        /* check if TD runs as an agent in K8S cluster */
+        if (Arrays.asList(args).contains("--k8sagent=true")) {
+            Agent agent = new Agent();
+            agent.start();
+        } else if (Arrays.asList(args).contains("--drivermode=true")) {
+            Driver driver = new Driver();
+            driver.run();
+        }
+
         try {
             Configuration configuration = null;
             try {
@@ -52,18 +63,6 @@ public class Main {
                 System.out.println();
                 cliParser.printShortHelp();
                 System.exit(1);
-            }
-
-            /* check if TD runs as an Agent in K8s */
-            if (configuration.getGlobalArgs().getK8sAgent()) {
-                Agent agent = new Agent();
-                agent.start();
-                System.exit(0);
-            } else if (configuration.getGlobalArgs().getDriverMode()) {
-                /* TD runs in driver mode */
-                Driver driver = new Driver();
-                driver.run();
-                System.exit(0);
             }
 
             Engine engine = new Engine(configuration);

@@ -24,7 +24,7 @@ public class Percentile extends Metric {
     public Percentile setValue(String value) {
         this.value = Double.valueOf(value.substring(0,value.length() - 1));
         if (this.name.equals(getClass().getSimpleName())) {
-            this.name = value + "p";
+            this.name = value;
         }
         return this;
     }

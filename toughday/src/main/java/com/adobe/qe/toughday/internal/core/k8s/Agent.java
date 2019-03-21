@@ -6,6 +6,9 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.*;
@@ -15,8 +18,9 @@ import static spark.Spark.post;
 public class Agent {
 
     private static final String DRIVER_HTTP = "http://driver";
-    private static final String PORT = "4567";
+    private static final String PORT = "80";
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
+    protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private String ipAddress = "";
 
@@ -39,11 +43,11 @@ public class Agent {
                 public synchronized void run () {
                     Engine engine = new Engine(configuration);
                     engine.runTests();
+
                 }
             };
 
             thread.start();
-
             return "";
         }));
 
@@ -65,7 +69,8 @@ public class Agent {
 
             /* submit request and check response code */
             HttpResponse driverResponse = httpClient.execute(registerRequest);
-            System.out.println("Response code is " + driverResponse.getStatusLine().getStatusCode());
+            LOG.log(Level.INFO, "Driver response code for registration request " +
+                    driverResponse.getStatusLine().getStatusCode());
 
         } catch (IOException e) {
             e.printStackTrace();

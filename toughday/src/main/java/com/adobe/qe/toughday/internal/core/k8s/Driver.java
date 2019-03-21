@@ -9,6 +9,9 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.*;
@@ -27,6 +30,7 @@ public class Driver {
     private final static String REGISTRATION_PARAM = ":ipAddress";
     private final static String REGISTER_PATH = "/registerAgent/" + REGISTRATION_PARAM;
     private final static String EXECUTION_PATH = "/submitConfig";
+    protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private final Map<String, String> agents = new HashMap<>();
 
@@ -62,8 +66,6 @@ public class Driver {
                     YamlDumpConfiguration dumpConfig = new YamlDumpConfiguration(configuration);
                     String yamlTask = dumpConfig.generateConfigurationObject();
 
-                    System.out.println("------------TASK IS--------------\n" + yamlTask);
-
                     try {
                         /* build HTTP query with yaml configuration as body */
                         HttpPost taskRequest = new HttpPost(agents.get(agentHostname));
@@ -74,7 +76,7 @@ public class Driver {
                         /* submit request and check response code */
                         HttpResponse agentResponse = httpClient.execute(taskRequest);
 
-                        System.out.println("Respone code from agent is " + agentResponse.getStatusLine().getStatusCode());
+                        LOG.log(Level.INFO, "Agent response code: " + agentResponse.getStatusLine().getStatusCode());
 
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -98,8 +100,7 @@ public class Driver {
                 }
             }.start();
 
-
-            return "Driver finished execution.";
+            return "received execution";
         }));
 
         /* expose http endpoint for registering new agents to the cluster */
@@ -107,8 +108,7 @@ public class Driver {
             String agentHostname = request.params(REGISTRATION_PARAM).replaceFirst(":", "");
             agents.put(agentHostname, URL_PREFIX + agentHostname + ":" + PORT + SUBMIT_TASK_PATH);
 
-            System.out.println("For agent " + agentHostname + " the URI is " + agents.get(agentHostname));
-
+            LOG.log(Level.INFO, "Registered agent with ip " + agentHostname);
             return "";
         });
 

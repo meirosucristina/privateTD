@@ -352,17 +352,24 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
 
         private void initialDelay() {
-            try {
-                Thread.sleep(initialDelay);
-            } catch (InterruptedException e) {
-                LOG.warn("Initial delay should not be interrupted.");
+            long timeToSleep = initialDelay;
+
+            while (timeToSleep > 0) {
+                long start = System.currentTimeMillis();
+                try {
+                    Thread.sleep(timeToSleep);
+                    break;
+                } catch (InterruptedException e) {
+                    timeToSleep = timeToSleep - (System.currentTimeMillis() - start);
+                    LOG.warn("Thread was interrupted during the initial delay;");
+                }
             }
         }
 
         @Override
         public void run() {
-            /* wait for initial delay */
-            initialDelay();
+            if (initialDelay != 0)
+                initialDelay();
 
             try {
                 currentLoad = load;
@@ -396,7 +403,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
 
         private void rampUp(MutableLong secondsLeft) {
-            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate > end + oneAgentRate))) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate >= end + oneAgentRate))) {
                 finishExecution();
             }
 
@@ -415,7 +422,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
 
         private void rampDown(MutableLong secondsLeft) {
-            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate < end - oneAgentRate))) {
+            if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
                 finishExecution();
             }
 
