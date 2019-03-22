@@ -13,13 +13,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.net.*;
 
+import static spark.Spark.get;
 import static spark.Spark.post;
 
 public class Agent {
-
     private static final String DRIVER_HTTP = "http://driver";
     private static final String PORT = "80";
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
+    private static final String HEARTBEAT_PATH = "/heartbeat";
+    private static final String TASK_PATH = "/submitTask";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private String ipAddress = "";
@@ -30,11 +32,12 @@ public class Agent {
             ipAddress = InetAddress.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
             e.printStackTrace();
+            System.exit(-1);
         }
 
         register();
 
-        post("/submitTask", ((request, response) ->  {
+        post(TASK_PATH, ((request, response) ->  {
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
@@ -51,17 +54,17 @@ public class Agent {
             return "";
         }));
 
-        /* wait until driver sends tasks */
-        while(true) {
+        get(HEARTBEAT_PATH, ((request, response) -> "Heartbeat acknowledged"));
 
-        }
+        /* wait until driver sends tasks */
+        while(true) { }
     }
 
     /**
      * Method responsible for registering the current agent to the driver. Should be the
      * first method executed.
      */
-    public void register() {
+    private void register() {
         /* send register request to K8s driver */
         try {
             HttpClient httpClient = HttpClientBuilder.create().build();

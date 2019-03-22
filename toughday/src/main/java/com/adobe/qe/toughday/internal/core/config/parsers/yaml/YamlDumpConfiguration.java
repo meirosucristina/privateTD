@@ -105,8 +105,8 @@ public class YamlDumpConfiguration {
     public Map<String, Object> getGlobals() {
        Map<String, Object> globals =
                collectConfigurableProperties(GlobalArgs.class, configuration.getGlobalArgs());
-       /* this is required because duration is internally converted from string(including the unit of measure)
-       to long value(duration is seconds) so we need to manually add the unit of measure when dumping it. */
+       /* this is required because duration is internally converted from string(which includes the unit of measure)
+       to long value(duration in seconds) so we need to manually add the unit of measure when dumping it. */
        globals.put("duration", String.valueOf(globals.get("duration")) + 's');
 
        return globals;
