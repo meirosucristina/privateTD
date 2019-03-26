@@ -6,8 +6,6 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,9 +24,7 @@ public class Agent {
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
-    private Thread taskWorkerThread;
     private String ipAddress = "";
-    private boolean finishedTaskExecution = false;
 
     public void start() {
 
@@ -44,29 +40,15 @@ public class Agent {
         post(TASK_PATH, ((request, response) ->  {
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
-            this.finishedTaskExecution = false;
 
-            //taskWorkerThread = new Thread(new TaskWorker(configuration));
-            //taskWorkerThread.start();
             Engine engine = new Engine(configuration);
             engine.runTests();
-            LOG.log(Level.INFO, "Succesffully completed TD task execution");
-
-            // mark task as finished
-            finishedTaskExecution = true;
+            LOG.log(Level.INFO, "Successfully completed TD task execution");
 
             return "";
         }));
 
-        get(HEARTBEAT_PATH, ((request, response) ->
-                {
-                    if (finishedTaskExecution) {
-                        return "Task completed";
-                    } else {
-                        return "Heartbeat acknowledged";
-                    }
-                }
-               ));
+        get(HEARTBEAT_PATH, ((request, response) -> "Heartbeat acknowledged"));
 
         while (true) {}
     }
@@ -90,23 +72,4 @@ public class Agent {
             e.printStackTrace();
         }
     }
-
-    /*private class TaskWorker implements Runnable {
-        private final Configuration configuration;
-
-        public TaskWorker(Configuration configuration) {
-            this.configuration = configuration;
-        }
-
-        @Override
-        public void run() {
-            Engine engine = new Engine(configuration);
-            engine.runTests();
-            LOG.log(Level.INFO, "Succesffully completed TD task execution");
-
-            // mark task as finished
-            finishedTaskExecution = true;
-        }
-    }*/
-
 }

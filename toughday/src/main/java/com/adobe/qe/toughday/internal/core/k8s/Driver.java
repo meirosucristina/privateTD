@@ -10,6 +10,7 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
@@ -18,10 +19,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
@@ -45,16 +43,18 @@ public class Driver {
     private static final String AGENT_PREFIX_NAME = "Agent";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
-    private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private long heartbeatInterval = GlobalArgs.parseDurationToSeconds("5s");
-    private ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
-    private CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
-    private HttpClient httpClient = HttpClientBuilder.create().build();
+
+    private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
+    private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
+
+    private ExecutorService executorService = Executors.newFixedThreadPool(1);
 
     public Driver() {
         asyncClient.start();
     }
-
 
     private void handleToughdaySampleContent(Configuration configuration) {
         GlobalArgs globalArgs = configuration.getGlobalArgs();
@@ -94,21 +94,35 @@ public class Driver {
                         taskRequest.setEntity(params);
                         taskRequest.setHeader("Content-type", "text/plain");
 
-                        /* submit request and check response code */
-                        /*HttpResponse agentResponse = httpClient.execute(taskRequest);
+                        Future<HttpResponse> taskResponse = asyncClient.execute(taskRequest, null);
+                        runningTasks.put(agentId, taskResponse);
 
-                        LOG.log(Level.INFO, "Agent response code: " + agentResponse.getStatusLine().getStatusCode()); */
-                        asyncClient.execute(taskRequest, null);
                         LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentId));
 
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                 });
-            } catch (CloneNotSupportedException e) {
+
+                // we should wait until all agents complete the current tasks in order to phases sequentially
+                Future future = executorService.submit(new StatusCheckerWorker());
+                future.get();
+
+                LOG.log(Level.INFO, "Phase " + phase.getName() + " finished execution successfully.");
+
+            } catch (CloneNotSupportedException | ExecutionException | InterruptedException e) {
                 e.printStackTrace();
             }
         });
+    }
+
+    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest) {
+        try {
+            HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
+            return agentResponse.getStatusLine().getStatusCode();
+        } catch (IOException e) {
+            return -1;
+        }
     }
 
     public void run() {
@@ -123,7 +137,7 @@ public class Driver {
                 }
             }.start();
 
-            return "received execution";
+            return "";
         }));
 
         /* expose http endpoint for registering new agents to the cluster */
@@ -135,64 +149,66 @@ public class Driver {
             return "";
         });
 
-
         // we should periodically send heartbeat messages from driver to all the agents
-        Thread heartBeatWorkerThread = new Thread(new HeartBeatWorker());
-        heartBeatWorkerThread.start();
+        heartbeatScheduler.scheduleAtFixedRate(() ->
+        {
+            for (String agentId : agents.keySet()) {
+                CloseableHttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
 
-        /* wait for execution command */
+                String ipAddress = agents.get(agentId);
+                String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
+                // configure timeout limits
+                RequestConfig requestConfig = RequestConfig.custom()
+                        .setConnectionRequestTimeout(1000)
+                        .setConnectTimeout(1000)
+                        .setSocketTimeout(1000)
+                        .build();
+                HttpGet heartbeatRequest = new HttpGet(URI);
+                heartbeatRequest.setConfig(requestConfig);
+
+                int retrial = 2;
+                int responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
+                while (responseCode != 200 && retrial > 0) {
+                    retrial -= 1;
+                }
+
+                if (retrial <= 0) {
+                    LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
+                    agents.remove(agentId);
+
+                    // TODO: change this when the new pod is able to resume the task
+                    runningTasks.remove(agentId);
+                }
+
+                try {
+                    heartBeatHttpClient.close();
+                } catch (IOException e) {
+                    LOG.warn("HeartBeat apache http client could not be closed.");
+                }
+            }
+        }, 0, heartbeatInterval, TimeUnit.SECONDS);
+
+        /* wait for requests */
         while (true) { }
     }
 
-    private class HeartBeatWorker implements Runnable {
-
-        private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest) {
-            try {
-                HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
-                return agentResponse.getStatusLine().getStatusCode();
-            } catch (IOException e) {
-                return -1;
-            }
-        }
-
+    private class StatusCheckerWorker implements Runnable {
         @Override
         public synchronized void run() {
-        try {
-                heartbeatScheduler.scheduleAtFixedRate(() ->
-                {
-                    for (String agentId : agents.keySet()) {
-                        HttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
+            long size = runningTasks.keySet().size();
 
-                        String ipAddress = agents.get(agentId);
-                        String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
-                        // configure timeout limits
-                        RequestConfig requestConfig = RequestConfig.custom()
-                                .setConnectionRequestTimeout(1000)
-                                .setConnectTimeout(1000)
-                                .setSocketTimeout(1000)
-                                .build();
-                        HttpGet heartbeatRequest = new HttpGet(URI);
-                        heartbeatRequest.setConfig(requestConfig);
-
-                        int retrial = 2;
-                        int responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
-                        while (responseCode != 200 && retrial > 0) {
-                            retrial -= 1;
-                        }
-
-                        LOG.log(Level.INFO, "Agent with ip " + ipAddress + " answered to heartbeat with " + responseCode);
-
-                        if (retrial <= 0) {
-                            LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
-                            agents.remove(agentId);
-                        }
-                    }
-                }, 0, heartbeatInterval, TimeUnit.SECONDS);
-
-            } catch (Exception e) {
-                LOG.log(Level.INFO, "Exception thrown in heartbeat worker");
-                LOG.log(Level.INFO, e.getMessage());
+            while (size > 0) {
+                size = runningTasks.entrySet().stream()
+                        .filter(entry -> !entry.getValue().isDone()).count();
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    // skip and continue
+                }
             }
+
+            // reset map of running tasks
+            runningTasks.clear();
         }
     }
 }
