@@ -7,7 +7,6 @@ import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
-import com.adobe.qe.toughday.metrics.Metric;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.junit.*;
@@ -237,23 +236,6 @@ public class TaskPartitionerTest {
             namesDiff.removeAll(testNames);
 
             Assert.assertEquals(0, namesDiff.size());
-        });
-    }
-
-    @Test
-    public void testEachAgentHasAllMetrics() throws Exception {
-        cmdLineArgs.addAll(Arrays.asList("--add", "Passed", "--add", "Failed", "--add", "Percentile", "value=90"));
-        List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
-
-        Phase phase = new Configuration(cmdLineArgs.toArray(new String[0])).getPhases().get(0);
-        Set<String> metricNames = phase.getMetrics().stream().map(Metric::getName).collect(Collectors.toSet());
-
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(phase, mockAgents);
-        taskMap.forEach((key, value) -> {
-            Set<String> phaseMetricNames = phase.getMetrics().stream().map(Metric::getName).collect(Collectors.toSet());
-            phaseMetricNames.removeAll(metricNames);
-
-            Assert.assertEquals(0, phaseMetricNames.size());
         });
     }
 

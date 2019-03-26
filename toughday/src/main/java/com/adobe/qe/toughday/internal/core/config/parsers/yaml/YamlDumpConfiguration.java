@@ -1,6 +1,7 @@
 package com.adobe.qe.toughday.internal.core.config.parsers.yaml;
 
 import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
+import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.ReflectionsContainer;
 import com.adobe.qe.toughday.internal.core.config.*;
 
@@ -9,6 +10,7 @@ import org.apache.logging.log4j.Level;
 import org.yaml.snakeyaml.Yaml;
 
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 /**
@@ -21,6 +23,10 @@ public class YamlDumpConfiguration {
 
     private Configuration configuration;
     private List<YamlDumpPhase> phases = new ArrayList<>();
+    private static final Map<Class, String> propertiesProccessedInSetters = new HashMap<Class, String>() {{
+        put(GlobalArgs.class, "timeout");
+    }};
+
 
     public List<YamlDumpPhase> getPhases() {
         return this.phases;
@@ -39,14 +45,30 @@ public class YamlDumpConfiguration {
                 .forEach(method -> {
                     String property = Configuration.propertyFromMethod(method.getName());
                     try {
+
                         Object value = method.invoke(object);
-                        if (value instanceof Level) {
-                            configurableArgs.put(property, ((Level) value).name());
-                        } else {
-                            configurableArgs.put(property, value);
+                        // check if value must be restored to the value of the parameter received in setter
+                        // TODO: change the way we do this and find a way for globals.duration
+                        if (propertiesProccessedInSetters.containsKey(type) && propertiesProccessedInSetters.get(type).equals(property)) {
+                            value = (long)value / 1000;
+                        }
+
+                        Class[] parametersType = {String.class};
+                        Method m = type.getMethod(method.getName().replace("get", "set"), parametersType);
+                        String defaultValue = m.getAnnotation(ConfigArgSet.class).defaultValue();
+
+                        // skip all default values
+                        if (!String.valueOf(value).equals(defaultValue) && value != null) {
+                            if (value instanceof Level) {
+                                configurableArgs.put(property, ((Level) value).name());
+                            } else {
+                                configurableArgs.put(property, value);
+                            }
                         }
                     } catch (IllegalAccessException | InvocationTargetException e) {
                         e.printStackTrace();
+                    } catch ( NoSuchMethodException e) {
+                        // skip for now
                     }
                 });
 

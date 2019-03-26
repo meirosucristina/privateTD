@@ -6,20 +6,25 @@ import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfigura
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+
 
 import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
 import static spark.Spark.*;
@@ -40,18 +45,21 @@ public class Driver {
     private static final String AGENT_PREFIX_NAME = "Agent";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
-    // TODO: Should this become ConcurrentHashMap because of the heartbeatScheduler?
-    private final Map<String, String> agents = new HashMap<>();
+    private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private long heartbeatInterval = GlobalArgs.parseDurationToSeconds("5s");
-    private ScheduledExecutorService hearbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+    private CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private HttpClient httpClient = HttpClientBuilder.create().build();
+
+    public Driver() {
+        asyncClient.start();
+    }
 
 
     private void handleToughdaySampleContent(Configuration configuration) {
         GlobalArgs globalArgs = configuration.getGlobalArgs();
 
         if (globalArgs.getInstallSampleContent() && !globalArgs.getDryRun()) {
-            //printConfiguration(configuration, new PrintStream(new Engine.LogStream(LOG)));
             try {
                 installToughdayContentPackage(globalArgs);
                 globalArgs.setInstallSampleContent("false");
@@ -87,9 +95,11 @@ public class Driver {
                         taskRequest.setHeader("Content-type", "text/plain");
 
                         /* submit request and check response code */
-                        HttpResponse agentResponse = httpClient.execute(taskRequest);
+                        /*HttpResponse agentResponse = httpClient.execute(taskRequest);
 
-                        LOG.log(Level.INFO, "Agent response code: " + agentResponse.getStatusLine().getStatusCode());
+                        LOG.log(Level.INFO, "Agent response code: " + agentResponse.getStatusLine().getStatusCode()); */
+                        asyncClient.execute(taskRequest, null);
+                        LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentId));
 
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -127,33 +137,62 @@ public class Driver {
 
 
         // we should periodically send heartbeat messages from driver to all the agents
-        hearbeatScheduler.scheduleAtFixedRate(() -> agents.forEach((id, ipAddress) -> {
-            String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
-            HttpGet heartbeatRequest = new HttpGet(URI);
-            int retrial = 2;
-
-            // TODO: Discuss with the team. Should we send more than 1 message when receiving bad response code?
-            try {
-                HttpResponse agentResponse = httpClient.execute(heartbeatRequest);
-
-                while (agentResponse.getStatusLine().getStatusCode() > 300 && retrial > 0) {
-                    agentResponse = httpClient.execute(heartbeatRequest);
-                    retrial -= 1;
-                }
-
-                if (retrial == 0) {
-                    LOG.warn("Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
-                    agents.remove(id);
-                }
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-
-        }), 0, heartbeatInterval, TimeUnit.SECONDS);
+        Thread heartBeatWorkerThread = new Thread(new HeartBeatWorker());
+        heartBeatWorkerThread.start();
 
         /* wait for execution command */
         while (true) { }
+    }
+
+    private class HeartBeatWorker implements Runnable {
+
+        private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest) {
+            try {
+                HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
+                return agentResponse.getStatusLine().getStatusCode();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+
+        @Override
+        public synchronized void run() {
+        try {
+                heartbeatScheduler.scheduleAtFixedRate(() ->
+                {
+                    for (String agentId : agents.keySet()) {
+                        HttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
+
+                        String ipAddress = agents.get(agentId);
+                        String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
+                        // configure timeout limits
+                        RequestConfig requestConfig = RequestConfig.custom()
+                                .setConnectionRequestTimeout(1000)
+                                .setConnectTimeout(1000)
+                                .setSocketTimeout(1000)
+                                .build();
+                        HttpGet heartbeatRequest = new HttpGet(URI);
+                        heartbeatRequest.setConfig(requestConfig);
+
+                        int retrial = 2;
+                        int responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
+                        while (responseCode != 200 && retrial > 0) {
+                            retrial -= 1;
+                        }
+
+                        LOG.log(Level.INFO, "Agent with ip " + ipAddress + " answered to heartbeat with " + responseCode);
+
+                        if (retrial <= 0) {
+                            LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
+                            agents.remove(agentId);
+                        }
+                    }
+                }, 0, heartbeatInterval, TimeUnit.SECONDS);
+
+            } catch (Exception e) {
+                LOG.log(Level.INFO, "Exception thrown in heartbeat worker");
+                LOG.log(Level.INFO, e.getMessage());
+            }
+        }
     }
 }

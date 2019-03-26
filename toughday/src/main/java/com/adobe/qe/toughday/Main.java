@@ -11,6 +11,8 @@ governing permissions and limitations under the License.
 */
 package com.adobe.qe.toughday;
 
+import com.adobe.qe.toughday.internal.core.config.PhaseParams;
+import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
@@ -20,11 +22,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.HashMap;
 
 import static spark.Spark.*;
 
 /**
- * Main class. Creates a Configuration and an engine and runs the tests.
+ * PrometheusTester class. Creates a Configuration and an engine and runs the tests.
  */
 public class Main {
     private static final Logger LOG;
@@ -34,8 +37,7 @@ public class Main {
         LOG = LogManager.getLogger(Main.class);
     }
 
-    public static void main(String[] args) {
-
+    public static void main(String[] args) throws Exception {
         // path for health check(used as liveness probe for Kubernetes pod)
         get("/healthz", ((request, response) -> "Healthy"));
         CliParser cliParser = new CliParser();
