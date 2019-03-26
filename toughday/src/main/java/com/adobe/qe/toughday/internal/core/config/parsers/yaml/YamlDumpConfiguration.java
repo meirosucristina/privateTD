@@ -23,10 +23,6 @@ public class YamlDumpConfiguration {
 
     private Configuration configuration;
     private List<YamlDumpPhase> phases = new ArrayList<>();
-    private static final Map<Class, String> propertiesProccessedInSetters = new HashMap<Class, String>() {{
-        put(GlobalArgs.class, "timeout");
-    }};
-
 
     public List<YamlDumpPhase> getPhases() {
         return this.phases;
@@ -47,11 +43,6 @@ public class YamlDumpConfiguration {
                     try {
 
                         Object value = method.invoke(object);
-                        // check if value must be restored to the value of the parameter received in setter
-                        // TODO: change the way we do this and find a way for globals.duration
-                        if (propertiesProccessedInSetters.containsKey(type) && propertiesProccessedInSetters.get(type).equals(property)) {
-                            value = (long)value / 1000;
-                        }
 
                         Class[] parametersType = {String.class};
                         Method m = type.getMethod(method.getName().replace("get", "set"), parametersType);

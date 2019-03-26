@@ -337,7 +337,7 @@ public class Configuration {
         phase.setPublishMode(publishMode);
 
         // compute the minimum timeout of the phase
-        phase.getTestSuite().setMinTimeout(globalArgs.getTimeout());
+        phase.getTestSuite().setMinTimeout(globalArgs.getTimeoutInSeconds());
         for(AbstractTest test : phase.getTestSuite().getTests()) {
             // set the count (the number of executions since the beginnin of the run) of each test to 0
             phase.getCounts().put(test, new AtomicLong(0));
