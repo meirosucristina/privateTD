@@ -18,6 +18,10 @@ import java.util.*;
  * to the agents in the K8S cluster as an HTTP query. This class assumes that it is not necessary to dump
  * the run mode and the publish mode fields of the Configuration class since each Phase described by this
  * configuration already defines those parameters.
+ *
+ * It also assumes that this only action to be taken into consideration when dumping the configuration is
+ * Actions.ADD since all the other actions were already processed before sending the execution query to
+ * the driver.
  */
 public class YamlDumpConfiguration {
 

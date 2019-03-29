@@ -33,16 +33,16 @@ import static spark.Spark.*;
 public class Driver {
 
     private static final String URL_PREFIX = "http://";
-    private static final String SUBMIT_TASK_PATH = "/submitTask";
     private static final String PORT = "4567";
     private static final String REGISTRATION_PARAM = ":ipAddress";
     private static final String REGISTER_PATH = "/registerAgent/" + REGISTRATION_PARAM;
-    private static final String EXECUTION_PATH = "/submitConfig";
+    private static final String EXECUTION_PATH = "/config";
     private static final String HEARTBEAT_PATH = "/heartbeat";
-    private static final AtomicInteger id = new AtomicInteger(0);
+    private static final String SUBMIT_TASK_PATH = "/submitTask";
     private static final String AGENT_PREFIX_NAME = "Agent";
-    protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
+    protected static final Logger LOG = LogManager.getLogger(Agent.class);
+    private static final AtomicInteger id = new AtomicInteger(0);
     private long heartbeatInterval = GlobalArgs.parseDurationToSeconds("5s");
 
     private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
@@ -63,7 +63,6 @@ public class Driver {
             try {
                 installToughdayContentPackage(globalArgs);
                 globalArgs.setInstallSampleContent("false");
-
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -104,7 +103,7 @@ public class Driver {
                     }
                 });
 
-                // we should wait until all agents complete the current tasks in order to phases sequentially
+                // we should wait until all agents complete the current tasks in order to execute phases sequentially
                 Future future = executorService.submit(new StatusCheckerWorker());
                 future.get();
 
@@ -139,6 +138,8 @@ public class Driver {
 
             return "";
         }));
+
+        get("/health", ((request, response) -> "Healthy"));
 
         /* expose http endpoint for registering new agents to the cluster */
         get(REGISTER_PATH, (request, response) -> {

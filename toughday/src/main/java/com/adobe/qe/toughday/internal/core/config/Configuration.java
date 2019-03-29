@@ -76,6 +76,73 @@ public class Configuration {
     private Map<String, Feeder> feeders = new LinkedHashMap<>();
     private Map<String, Object> objects = new HashMap<>();
 
+    public Configuration(String yamlConfig)
+            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IOException, IllegalAccessException {
+        ConfigParams configParams = new YamlParser().parse(yamlConfig);
+        buildConfiguration(configParams);
+    }
+
+    public Configuration(String[] cmdLineArgs)
+            throws IllegalAccessException, InstantiationException, InvocationTargetException, NoSuchMethodException, IOException {
+        ConfigParams configParams = collectConfigurations(cmdLineArgs);
+        buildConfiguration(configParams);
+
+    }
+
+    /**
+     * Method for getting the property from a setter method
+     *
+     * @param methodName
+     * @return
+     */
+    public static String propertyFromMethod(String methodName) {
+        return methodName.startsWith("set") || methodName.startsWith("get") ? StringUtils.lowerCase(methodName.substring(3)) : StringUtils.lowerCase(methodName);
+    }
+
+    // loads all classes from the extension jar files using a new class loader.
+
+    private static void callConfigArgSet(Method method, Object object, Map<String, Object> args, boolean applyDefaults) throws InvocationTargetException, IllegalAccessException {
+        ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
+        if (annotation == null) {
+            return;
+        }
+
+        String property = propertyFromMethod(method.getName());
+        Object value = args.remove(property);
+        if (value == null) {
+            if (requiredFieldsForClassAdded.containsKey(object)
+                    && requiredFieldsForClassAdded.get(object).contains(property)) {
+                return;
+            }
+
+            if (annotation.required()) {
+                throw new IllegalArgumentException("Property \"" + property + "\" is required for class " + object.getClass().getSimpleName());
+            } else if (applyDefaults) {
+                String defaultValue = annotation.defaultValue();
+                if (defaultValue.compareTo("") != 0) {
+                    LOGGER.info("\tSetting property \"" + property + "\" to default value: \"" + defaultValue + "\"");
+                    method.invoke(object, defaultValue);
+                }
+            }
+        } else {
+            if (annotation.required()) {
+                if (requiredFieldsForClassAdded.containsKey(object)) {
+                    requiredFieldsForClassAdded.get(object).add(property);
+                } else {
+                    requiredFieldsForClassAdded.put(object,
+                            new HashSet<>(Collections.singletonList(property)));
+                }
+            }
+            LOGGER.info("\tSetting property \"" + property + "\" to: \"" + value + "\"");
+            //TODO fix this ugly thing: all maps should be String -> String, but snake yaml automatically converts Integers, etc. so for now we call toString.
+            method.invoke(object, value.toString());
+        }
+    }
+
+    public static Map<Object, HashSet<String>> getRequiredFieldsForClassAdded() {
+        return requiredFieldsForClassAdded;
+    }
+
     private void handleExtensions(ConfigParams configParams) {
         List<String> extensionList = new ArrayList<>();
 
@@ -84,8 +151,8 @@ public class Configuration {
         while (metaObjectIterator.hasNext()) {
             Map.Entry<Actions, ConfigParams.MetaObject> entry = metaObjectIterator.next();
 
-            if (entry.getKey() == Actions.ADD && ((ConfigParams.ClassMetaObject)entry.getValue()).getClassName().endsWith(".jar")) {
-                extensionList.add(((ConfigParams.ClassMetaObject)entry.getValue()).getClassName());
+            if (entry.getKey() == Actions.ADD && ((ConfigParams.ClassMetaObject) entry.getValue()).getClassName().endsWith(".jar")) {
+                extensionList.add(((ConfigParams.ClassMetaObject) entry.getValue()).getClassName());
                 metaObjectIterator.remove();
             }
         }
@@ -120,7 +187,8 @@ public class Configuration {
     }
 
     /**
-     *  Creates a jar file for each extension file that should be loaded.
+     * Creates a jar file for each extension file that should be loaded.
+     *
      * @param extensionList A list of names representing the jar files that should be loaded.
      */
     private List<JarFile> createJarFiles(List<String> extensionList) {
@@ -138,7 +206,8 @@ public class Configuration {
     }
 
     /**
-     *  Creates an URL for each jar file, using its filename.
+     * Creates an URL for each jar file, using its filename.
+     *
      * @param extensionsFileNames
      * @return
      */
@@ -154,8 +223,6 @@ public class Configuration {
 
         return urls.toArray(new URL[0]);
     }
-
-    // loads all classes from the extension jar files using a new class loader.
 
     private ClassLoader processJarFiles(List<JarFile> jarFiles, URL[] urls) throws MalformedURLException {
         ToughdayExtensionClassLoader classLoader = new ToughdayExtensionClassLoader(urls, Thread.currentThread().getContextClassLoader());
@@ -193,19 +260,6 @@ public class Configuration {
         return classLoader;
     }
 
-    public Configuration(String yamlConfig)
-            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IOException, IllegalAccessException {
-        ConfigParams configParams = new YamlParser().parse(yamlConfig);
-        buildConfiguration(configParams);
-    }
-
-    public Configuration(String[] cmdLineArgs)
-            throws IllegalAccessException, InstantiationException, InvocationTargetException, NoSuchMethodException, IOException {
-        ConfigParams configParams = collectConfigurations(cmdLineArgs);
-        buildConfiguration(configParams);
-
-    }
-
     private boolean executeInDitributedMode(ConfigParams configParams) {
         return configParams.getGlobalParams().containsKey("distributedmode") && (
                 boolean) configParams.getGlobalParams().get("distributedmode");
@@ -217,9 +271,17 @@ public class Configuration {
 
         /* check if we should trigger an execution query in the K8S cluster. */
         if (executeInDitributedMode(configParams)) {
-            GenerateYamlConfiguration generateYaml =  new GenerateYamlConfiguration(copyOfConfigParams, items);
+            // sanity check
+            if (configParams.getGlobalParams().get("driverip") == null) {
+                throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
+                        " is required when running TD in distributed mode.");
+            }
+
+            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
             generateYaml.getGlobals().remove("distributedmode");
-            new ExecutionTrigger(generateYaml.createYamlStringRepresentation()).triggerExecution();
+            generateYaml.getGlobals().remove("driverip");
+            new ExecutionTrigger(generateYaml.createYamlStringRepresentation(),
+                    String.valueOf(configParams.getGlobalParams().get("driverip"))).triggerExecution();
         }
 
         // we should load extensions before any configuration object is created.
@@ -250,7 +312,7 @@ public class Configuration {
 
         // Check if we should create a configuration file for this run.
         if (this.getGlobalArgs().getSaveConfig()) {
-            GenerateYamlConfiguration generateYaml =  new GenerateYamlConfiguration(copyOfConfigParams, items);
+            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
             generateYaml.createYamlConfigurationFile();
         }
 
@@ -338,7 +400,7 @@ public class Configuration {
 
         // compute the minimum timeout of the phase
         phase.getTestSuite().setMinTimeout(globalArgs.getTimeoutInSeconds());
-        for(AbstractTest test : phase.getTestSuite().getTests()) {
+        for (AbstractTest test : phase.getTestSuite().getTests()) {
             // set the count (the number of executions since the beginnin of the run) of each test to 0
             phase.getCounts().put(test, new AtomicLong(0));
 
@@ -347,7 +409,7 @@ public class Configuration {
 
             items.put(test.getName(), test.getClass());
 
-            if(test.getTimeout() < 0) {
+            if (test.getTimeout() < 0) {
                 continue;
             }
 
@@ -395,7 +457,7 @@ public class Configuration {
 
             // merge the current phase with the one whose name is the value of 'useconfig'
             phaseParams.merge(PhaseParams.namedPhases.get(useconfig),
-                        new HashSet<>(Arrays.asList(name, useconfig)));
+                    new HashSet<>(Arrays.asList(name, useconfig)));
 
         }
     }
@@ -412,14 +474,10 @@ public class Configuration {
                     configItem((ConfigParams.NamedMetaObject) item.getValue(), items, testSuite, publishers, metrics);
                     break;
                 case EXCLUDE:
-                    excludeItem(((ConfigParams.NamedMetaObject)item.getValue()).getName(), testSuite, publishers, metrics);
+                    excludeItem(((ConfigParams.NamedMetaObject) item.getValue()).getName(), testSuite, publishers, metrics);
                     break;
             }
         }
-    }
-
-    public void setPhases(List<Phase> phases) {
-        this.phases = phases;
     }
 
     private void configureDurationForPhases() {
@@ -640,16 +698,6 @@ public class Configuration {
     }
 
     /**
-     * Method for getting the property from a setter method
-     *
-     * @param methodName
-     * @return
-     */
-    public static String propertyFromMethod(String methodName) {
-        return methodName.startsWith("set") || methodName.startsWith("get") ? StringUtils.lowerCase(methodName.substring(3)) : StringUtils.lowerCase(methodName);
-    }
-
-    /**
      * Method for setting an object properties annotated with ConfigArgSet using reflection
      *
      * @param object
@@ -661,9 +709,9 @@ public class Configuration {
      * @throws IllegalAccessException    caused by reflection
      */
     //TODO figure out if we can make this public static again
-    public  <T> T setObjectProperties(T object, Map<String, Object> args, boolean applyDefaults, Map<String, Feeder> feedersContext) throws InvocationTargetException, IllegalAccessException {
+    public <T> T setObjectProperties(T object, Map<String, Object> args, boolean applyDefaults, Map<String, Feeder> feedersContext) throws InvocationTargetException, IllegalAccessException {
         Class classObject = object.getClass();
-        LOGGER.info("Configuring object of class: " + classObject.getSimpleName()+" ["+classObject.getName()+"]");
+        LOGGER.info("Configuring object of class: " + classObject.getSimpleName() + " [" + classObject.getName() + "]");
         for (Method method : classObject.getMethods()) {
             callConfigArgSet(method, object, args, applyDefaults);
             FeederInjector.injectFeeder(method, object, args, applyDefaults, feedersContext, objects);
@@ -671,45 +719,7 @@ public class Configuration {
         return object;
     }
 
-    private static void callConfigArgSet(Method method, Object object, Map<String, Object> args, boolean applyDefaults) throws InvocationTargetException, IllegalAccessException {
-        ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
-        if (annotation == null) {
-            return;
-        }
-
-        String property = propertyFromMethod(method.getName());
-        Object value = args.remove(property);
-        if (value == null) {
-            if (requiredFieldsForClassAdded.containsKey(object)
-                    && requiredFieldsForClassAdded.get(object).contains(property)) {
-                return;
-            }
-
-            if (annotation.required()) {
-                throw new IllegalArgumentException("Property \"" + property + "\" is required for class " + object.getClass().getSimpleName());
-            } else if(applyDefaults) {
-                String defaultValue = annotation.defaultValue();
-                if (defaultValue.compareTo("") != 0) {
-                    LOGGER.info("\tSetting property \"" + property + "\" to default value: \"" + defaultValue + "\"");
-                    method.invoke(object, defaultValue);
-                }
-            }
-        } else {
-            if (annotation.required()) {
-                if (requiredFieldsForClassAdded.containsKey(object)) {
-                    requiredFieldsForClassAdded.get(object).add(property);
-                } else {
-                    requiredFieldsForClassAdded.put(object,
-                            new HashSet<>(Collections.singletonList(property)));
-                }
-            }
-            LOGGER.info("\tSetting property \"" + property + "\" to: \"" + value + "\"");
-            //TODO fix this ugly thing: all maps should be String -> String, but snake yaml automatically converts Integers, etc. so for now we call toString.
-            method.invoke(object, value.toString());
-        }
-    }
-
-    public  <T> T createObject(Class<? extends T> classObject, Map<String, Object> args)
+    public <T> T createObject(Class<? extends T> classObject, Map<String, Object> args)
             throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
         return createObject(classObject, args, null);
     }
@@ -726,7 +736,7 @@ public class Configuration {
      * @throws InstantiationException
      * @throws NoSuchMethodException
      */
-    public  <T> T createObject(Class<? extends T> classObject, Map<String, Object> args, Map<String, Feeder> feederContext)
+    public <T> T createObject(Class<? extends T> classObject, Map<String, Object> args, Map<String, Feeder> feederContext)
             throws IllegalAccessException, InvocationTargetException, InstantiationException, NoSuchMethodException {
 
         Constructor constructor = null;
@@ -896,8 +906,8 @@ public class Configuration {
         return phases;
     }
 
-    public static Map<Object, HashSet<String>> getRequiredFieldsForClassAdded() {
-        return requiredFieldsForClassAdded;
+    public void setPhases(List<Phase> phases) {
+        this.phases = phases;
     }
 
     public TestSuite getTestSuite() {
@@ -908,5 +918,7 @@ public class Configuration {
         return phasesWithoutDuration;
     }
 
-    public Collection<Feeder> getFeeders() { return feeders.values(); }
+    public Collection<Feeder> getFeeders() {
+        return feeders.values();
+    }
 }

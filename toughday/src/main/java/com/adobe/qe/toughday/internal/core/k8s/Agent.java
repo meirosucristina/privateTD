@@ -17,13 +17,16 @@ import java.net.*;
 import static spark.Spark.get;
 import static spark.Spark.post;
 
+/**
+ * Agent component for running TD distributed in Kubernetes.
+ */
 public class Agent {
-    private static final String DRIVER_HTTP = "http://driver";
     private static final String PORT = "80";
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
+
     private String ipAddress = "";
 
     public void start() {
@@ -50,6 +53,9 @@ public class Agent {
 
         get(HEARTBEAT_PATH, ((request, response) -> "Heartbeat acknowledged"));
 
+        get("/health", ((request, response) -> "Healthy"));
+
+        // TODO: change this to automatically kill the pods
         while (true) {}
     }
 
@@ -61,7 +67,8 @@ public class Agent {
         /* send register request to K8s driver */
         try {
             HttpClient httpClient = HttpClientBuilder.create().build();
-            HttpGet registerRequest = new HttpGet(DRIVER_HTTP + ":" + PORT + DRIVER_REGISTER_PATH + "/:" + this.ipAddress);
+            HttpGet registerRequest = new HttpGet("http://driver" + ":" +
+                    PORT + DRIVER_REGISTER_PATH + "/:" + this.ipAddress);
 
             /* submit request and check response code */
             HttpResponse driverResponse = httpClient.execute(registerRequest);

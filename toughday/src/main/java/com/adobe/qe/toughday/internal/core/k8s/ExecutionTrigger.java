@@ -11,26 +11,30 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
+/**
+ * Class responsible for sending a request to the driver component in the K8s cluster for
+ * that will trigger the execution of TD.
+ */
 public class ExecutionTrigger {
 
-    private final static String URI = "http://driver-host/submitConfig";
     protected static final Logger LOG = LogManager.getLogger(ExecutionTrigger.class);
 
     private final String stringYamlConfig;
+    private final String driverURI;
 
-
-    public ExecutionTrigger(String stringYamlConfig) {
+    public ExecutionTrigger(String stringYamlConfig, String driverURI) {
         if (stringYamlConfig == null || stringYamlConfig.isEmpty()) {
             throw new IllegalStateException("StringYamlConfiguration must not be null or empty.");
         }
 
         this.stringYamlConfig = stringYamlConfig;
+        this.driverURI = driverURI;
     }
 
     public void triggerExecution() throws IOException {
         /* build HTTP query with yaml configuration as body */
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost request = new HttpPost(URI);
+        HttpPost request = new HttpPost("http://" + this.driverURI + ":80"  + "/config");
         StringEntity params = new StringEntity(stringYamlConfig);
 
         request.setEntity(params);
@@ -41,7 +45,7 @@ public class ExecutionTrigger {
         LOG.log(Level.INFO, "Driver response code: " + response.getStatusLine().getStatusCode());
 
         try {
-            Thread.sleep(50000);
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

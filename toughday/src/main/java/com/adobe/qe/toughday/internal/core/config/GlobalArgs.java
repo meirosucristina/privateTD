@@ -63,6 +63,7 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     private boolean k8sAgent = false;
     private boolean driverMode = false;
     private String logPath;
+    private String driverIp = null;
 
     /**
      * Constructor
@@ -386,11 +387,22 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
         return this.distributedMode;
     }
 
+    @ConfigArgSet(required = false, desc = "The public ip address of the cluster. The driver" +
+            " service must be accessible at this address. This property is required when running in distributed mode.")
+    public void setDriverIp(String driverIp) {
+        this.driverIp = driverIp;
+    }
+
+    @ConfigArgGet
+    public String getDriverIp() {
+        return this.driverIp;
+    }
+
     @ConfigArgGet
     public boolean getK8sAgent() { return this.k8sAgent; }
 
-    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a K8s agent, waiting to receive a task" +
-            "from the driver.")
+    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a K8s agent, waiting to receive" +
+            " a task from the driver.")
     public void setK8sAgent(String k8sAgent) {
         this.k8sAgent = Boolean.parseBoolean(k8sAgent);
     }
@@ -400,8 +412,8 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
         return this.driverMode;
     }
 
-    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a driver in the cluster, distributing the " +
-            "work between the agents.")
+    @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a driver in the cluster," +
+            " distributing the work between the agents.")
     public void setDriverMode(String driverMode) {
         this.driverMode = Boolean.parseBoolean(driverMode);
     }
