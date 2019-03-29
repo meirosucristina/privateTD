@@ -1,9 +1,0 @@
-FROM openjdk:8-jdk
-
-RUN mkdir /toughday 
-
-COPY toughday/target/toughday2-agent.jar /toughday
-
-WORKDIR "/toughday"
-
-CMD java -jar toughday2-agent.jar --host=10.244.1.40 --k8sagent=true
