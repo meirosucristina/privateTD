@@ -151,8 +151,8 @@ public class Configuration {
         while (metaObjectIterator.hasNext()) {
             Map.Entry<Actions, ConfigParams.MetaObject> entry = metaObjectIterator.next();
 
-            if (entry.getKey() == Actions.ADD && ((ConfigParams.ClassMetaObject) entry.getValue()).getClassName().endsWith(".jar")) {
-                extensionList.add(((ConfigParams.ClassMetaObject) entry.getValue()).getClassName());
+            if (entry.getKey() == Actions.ADD && ((ConfigParams.ClassMetaObject)entry.getValue()).getClassName().endsWith(".jar")) {
+                extensionList.add(((ConfigParams.ClassMetaObject)entry.getValue()).getClassName());
                 metaObjectIterator.remove();
             }
         }
