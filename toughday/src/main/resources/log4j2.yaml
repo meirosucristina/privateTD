@@ -33,7 +33,7 @@ Configuration:
             AppenderRef:
                 ref: CoreFile
         Logger:
-          - name: com.adobe.qe.toughday.PrometheusTester
+          - name: com.adobe.qe.toughday.Main
             level: info
             additivity: false
             AppenderRef:

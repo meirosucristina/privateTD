@@ -45,7 +45,6 @@ public class YamlDumpConfiguration {
                 .forEach(method -> {
                     String property = Configuration.propertyFromMethod(method.getName());
                     try {
-
                         Object value = method.invoke(object);
 
                         Class[] parametersType = {String.class};
