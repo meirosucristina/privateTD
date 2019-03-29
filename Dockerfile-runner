@@ -1,9 +1,0 @@
-FROM openjdk:8-jdk
-
-RUN mkdir /toughday 
-
-COPY toughday/target/toughday2-runner.jar /toughday
-
-WORKDIR "/toughday"
-
-CMD java -jar toughday2-runner.jar --host=10.244.1.40 --distributedmode=true --add CreateUserTest count=1000 --add CreateFolderTreeTest count=1000
