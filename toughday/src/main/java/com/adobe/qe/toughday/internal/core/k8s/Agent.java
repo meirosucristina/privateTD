@@ -28,6 +28,7 @@ public class Agent {
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private String ipAddress = "";
+    private Engine engine;
 
     public void start() {
 
@@ -44,14 +45,19 @@ public class Agent {
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
-            Engine engine = new Engine(configuration);
-            engine.runTests();
+            this.engine = new Engine(configuration);
+            this.engine.runTests();
             LOG.log(Level.INFO, "Successfully completed TD task execution");
 
             return "";
         }));
 
-        get(HEARTBEAT_PATH, ((request, response) -> "Heartbeat acknowledged"));
+        get(HEARTBEAT_PATH, ((request, response) ->
+        {
+            // send to driver the total number of execution/test
+            engine.getCurrentPhase().getCounts();
+            return "Heartbeat acknowledged";
+        }));
 
         get("/health", ((request, response) -> "Healthy"));
 

@@ -1,5 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
+import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
@@ -49,6 +50,7 @@ public class Driver {
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
+    private final Map<AbstractTest, Long> counts = new HashMap<>();
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
 
@@ -75,6 +77,7 @@ public class Driver {
         TaskPartitioner taskPartitioner = new TaskPartitioner();
         configuration.getPhases().forEach(phase -> {
             try {
+                counts.clear();
                 Map<String, Phase> tasks = taskPartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
 
                 agents.keySet().forEach(agentId -> {
@@ -150,7 +153,10 @@ public class Driver {
             return "";
         });
 
-        // we should periodically send heartbeat messages from driver to all the agents
+        /* we should periodically query the agents to compute the total number of executions/tests
+         * executed by all the agents. This serves as a heartbeat query as well, detecting the agents
+         * that are no longer reachable in the cluster.
+         */
         heartbeatScheduler.scheduleAtFixedRate(() ->
         {
             for (String agentId : agents.keySet()) {
