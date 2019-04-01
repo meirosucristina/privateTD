@@ -167,9 +167,10 @@ public class Driver {
                 HttpGet heartbeatRequest = new HttpGet(URI);
                 heartbeatRequest.setConfig(requestConfig);
 
-                int retrial = 2;
-                int responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
+                int retrial = 3;
+                int responseCode = 0;
                 while (responseCode != 200 && retrial > 0) {
+                    responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
                     retrial -= 1;
                 }
 
