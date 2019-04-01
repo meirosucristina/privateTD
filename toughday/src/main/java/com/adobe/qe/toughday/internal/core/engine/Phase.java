@@ -125,10 +125,6 @@ public class Phase implements Cloneable {
         this.publishers = publishers;
     }
 
-    public void setCounts(Map<AbstractTest, AtomicLong> counts) {
-        this.counts = counts;
-    }
-
     public Collection<Metric> getMetrics() {
 
         List<Metric> requiredMetrics = new ArrayList<>();

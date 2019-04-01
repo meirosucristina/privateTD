@@ -1,6 +1,5 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
-import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
@@ -19,21 +18,19 @@ public class TaskPartitioner {
         Phase taskPhase = (Phase) phase.clone();
 
         /* change count property for each test in the test suite */
-        Map<AbstractTest, AtomicLong> newCounts = new HashMap<>();
         TestSuite taskTestSuite = phase.getTestSuite().clone();
 
-        for (AbstractTest test : taskTestSuite.getTests()) {
+        // set the count (the number of executions since the beginning of the run) of each test to 0
+        taskTestSuite.getTests().forEach(test -> taskPhase.getCounts().put(test, new AtomicLong(0)));
+
+        taskTestSuite.getTests().forEach(test -> {
             if (addRemainder) {
-                newCounts.put(test, new AtomicLong(test.getCount() / nrAgents + test.getCount() % nrAgents));
-                test.setCount(String.valueOf(newCounts.get(test)));
-
+                test.setCount(String.valueOf(test.getCount() / nrAgents + test.getCount() % nrAgents));
             } else {
-                newCounts.put(test, new AtomicLong(test.getCount() / nrAgents));
-                test.setCount(String.valueOf(newCounts.get(test)));
+                test.setCount(String.valueOf(test.getCount() / nrAgents));
             }
-        }
+        });
 
-        taskPhase.setCounts(newCounts);
         taskPhase.setTestSuite(taskTestSuite);
 
         /* set new run mode for current phase */
