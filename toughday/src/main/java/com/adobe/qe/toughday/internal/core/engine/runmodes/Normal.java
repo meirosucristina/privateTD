@@ -18,6 +18,7 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
+import com.google.gson.Gson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +58,7 @@ public class Normal implements RunMode, Cloneable {
     private long initialDelay = 0;
 
     private RunContext context = null;
+    private DriverRebalanceContext driverRebalanceContext = null;
 
     @ConfigArgGet
     public int getConcurrency() {
@@ -298,6 +300,42 @@ public class Normal implements RunMode, Cloneable {
         return context;
     }
 
+    public DriverRebalanceContext getDriverRebalanceContext() {
+        if (driverRebalanceContext == null) {
+            this.driverRebalanceContext = new DriverRebalanceContext() {
+                Gson gson = new Gson();
+
+                @Override
+                public Map<String, String> getInstructionsForRebalancingWork(Phase phase, String[] activeAgents) {
+                    Map<String, String> runModeMessages = new HashMap<>();
+
+                    List<Normal> taskRunModes = distributeRunMode(activeAgents.length);
+                    /* convert run modes to messages that will instruct agents how to adapt to the new number
+                     * of active agents in the cluster
+                     */
+
+                    for (int i = 0; i < activeAgents.length; i++) {
+                        Normal runMode = taskRunModes.get(i);
+
+                        // key = property name;
+                        Map<String, Object> instructions = new HashMap<>();
+                        instructions.put("concurrency", runMode.concurrency);
+                        instructions.put("start", runMode.start);
+                        instructions.put("end", runMode.end);
+                        instructions.put("rate", runMode.rate);
+                        instructions.put("interval", runMode.interval);
+
+                        runModeMessages.put(activeAgents[i], gson.toJson(instructions));
+                    }
+
+                    return runModeMessages;
+                }
+            };
+        }
+
+        return driverRebalanceContext;
+    }
+
     private Normal setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
                                                    int endRemainder, int startRemainder,
                                                    int concurrencyRemainder, int agentId) {
@@ -334,8 +372,8 @@ public class Normal implements RunMode, Cloneable {
     }
 
     @Override
-    public List<RunMode> distributeRunMode(int nrAgents) {
-        List<RunMode> taskRunModes = new ArrayList<>();
+    public List<Normal> distributeRunMode(int nrAgents) {
+        List<Normal> taskRunModes = new ArrayList<>();
 
         Normal firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents, this.end % nrAgents,
                 this.start % nrAgents, this.concurrency % nrAgents, 0);

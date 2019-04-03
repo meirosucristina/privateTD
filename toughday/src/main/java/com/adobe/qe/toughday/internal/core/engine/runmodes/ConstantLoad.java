@@ -206,6 +206,11 @@ public class ConstantLoad implements RunMode, Cloneable {
         };
     }
 
+    @Override
+    public DriverRebalanceContext getDriverRebalanceContext() {
+        return null;
+    }
+
     private ConstantLoad setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,
                                                         int loadRemainder, int agentId) {
@@ -239,8 +244,8 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     @Override
-    public List<RunMode> distributeRunMode(int nrAgents) {
-        List<RunMode> runModes = new ArrayList<>();
+    public List<ConstantLoad> distributeRunMode(int nrAgents) {
+        List<ConstantLoad> runModes = new ArrayList<>();
 
         ConstantLoad firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents,
                 this.start % nrAgents, this.end % nrAgents, this.load % nrAgents, 0);

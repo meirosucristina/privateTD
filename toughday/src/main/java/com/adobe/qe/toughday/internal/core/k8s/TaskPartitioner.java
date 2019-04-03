@@ -13,30 +13,24 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class TaskPartitioner {
 
-    private Phase setParamsForDistributedPhase(Phase phase, int nrAgents, RunMode runMode, boolean addRemainder)
-            throws CloneNotSupportedException {
-        Phase taskPhase = (Phase) phase.clone();
+    public Map<String, TestSuite> distributeTestSuite(TestSuite initialTestSuite, List<String> agents) {
+        Map<String, TestSuite> taskTestSuites = new HashMap<>();
 
-        /* change count property for each test in the test suite */
-        TestSuite taskTestSuite = phase.getTestSuite().clone();
+        for (int i = 0; i < agents.size(); i++) {
+            TestSuite clone = initialTestSuite.clone();
 
-        // set the count (the number of executions since the beginning of the run) of each test to 0
-        taskTestSuite.getTests().forEach(test -> taskPhase.getCounts().put(test, new AtomicLong(0)));
+            clone.getTests().forEach(test -> {
+                if (taskTestSuites.isEmpty()) {
+                    test.setCount(String.valueOf(test.getCount() / agents.size() + test.getCount() % agents.size()));
+                } else {
+                    test.setCount(String.valueOf(test.getCount() / agents.size()));
+                }
+            });
 
-        taskTestSuite.getTests().forEach(test -> {
-            if (addRemainder) {
-                test.setCount(String.valueOf(test.getCount() / nrAgents + test.getCount() % nrAgents));
-            } else {
-                test.setCount(String.valueOf(test.getCount() / nrAgents));
-            }
-        });
+            taskTestSuites.put(agents.get(i), clone);
+        }
 
-        taskPhase.setTestSuite(taskTestSuite);
-
-        /* set new run mode for current phase */
-        taskPhase.setRunMode(runMode);
-
-        return taskPhase;
+        return taskTestSuites;
     }
 
     /**
@@ -56,10 +50,19 @@ public class TaskPartitioner {
 
         Map<String, Phase> taskPerAgent = new HashMap<>();
         List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(agents.size());
+        Map<String, TestSuite> partitionTestSuites = distributeTestSuite(phase.getTestSuite(), agents);
 
         for (int i = 0; i < agents.size(); i++) {
-            taskPerAgent.put(agents.get(i), setParamsForDistributedPhase(phase, agents.size(),
-                    partitionRunModes.get(i), i == 0));
+            Phase taskPhase = (Phase) phase.clone();
+            TestSuite taskTestSuite = partitionTestSuites.get(agents.get(i));
+
+            // set the count (the number of executions since the beginning of the run) of each test to 0
+            taskTestSuite.getTests().forEach(test -> taskPhase.getCounts().put(test, new AtomicLong(0)));
+
+            taskPhase.setTestSuite(taskTestSuite);
+            taskPhase.setRunMode(partitionRunModes.get(i));
+
+            taskPerAgent.put(agents.get(i), taskPhase);
         }
 
         return taskPerAgent;

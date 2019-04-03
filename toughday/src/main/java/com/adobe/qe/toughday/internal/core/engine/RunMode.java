@@ -15,6 +15,8 @@ import com.adobe.qe.toughday.api.core.RunMap;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public interface RunMode {
@@ -22,11 +24,16 @@ public interface RunMode {
     void finishExecutionAndAwait();
     ExecutorService getExecutorService();
     RunContext getRunContext();
+    DriverRebalanceContext getDriverRebalanceContext();
 
     interface RunContext {
         Collection<AsyncTestWorker> getTestWorkers();
         Collection<RunMap> getRunMaps();
         boolean isRunFinished();
+    }
+
+    interface DriverRebalanceContext {
+        Map<String, String> getInstructionsForRebalancingWork(Phase phase, String[] activeAgents);
     }
 
     /**
@@ -35,5 +42,5 @@ public interface RunMode {
      * @param nrAgents The number of agents sharing this run mode.
      * @return List of run modes (one for every agent)
      */
-    List<RunMode> distributeRunMode(int nrAgents);
+    <T> List<T> distributeRunMode(int nrAgents);
 }
