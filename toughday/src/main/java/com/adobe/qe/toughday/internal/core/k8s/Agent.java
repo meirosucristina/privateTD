@@ -2,6 +2,7 @@ package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
@@ -17,6 +18,7 @@ import java.io.IOException;
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 
@@ -31,10 +33,12 @@ public class Agent {
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
+    private static final String REBALANCE_PATH = "/rebalance";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private String ipAddress = "";
     private Engine engine;
+    private AtomicBoolean rebalanceRequest = new AtomicBoolean(false);
 
     public void start() {
 
@@ -57,6 +61,26 @@ public class Agent {
 
             return "";
         }));
+
+        post(REBALANCE_PATH, (((request, response) ->  {
+            LOG.log(Level.INFO, "Received request to interrupt TD execution.\n");
+            System.out.println("Received request to interrupt TD execution.\n");
+            this.rebalanceRequest.set(true);
+
+            // we should interrupt all worker threads in order to stop running tests
+            this.engine.getCurrentPhase().getRunMode().getRunContext().interruptWorkers();
+            LOG.log(Level.INFO, "All test workers were successfully interrupted.\n");
+            System.out.println("All test workers were successfully interrupted.\n");
+
+            /* prevent run mode from creating/interrupting test worker threads during ramp up
+             * or ramp down until work is completely rebalanced.
+             */
+            this.engine.getCurrentPhase().getRunMode().interruptRunMode(true);
+            LOG.log(Level.INFO, "Run mode is no longer creating/deleting worker threads.\n");
+            System.out.println("Run mode is no longer creating/deleting worker threads.\n");
+
+            return AgentStates.WAITING_BALANCING_INSTRUCTIONS;
+        })));
 
         get(HEARTBEAT_PATH, ((request, response) ->
         {
@@ -103,4 +127,8 @@ public class Agent {
             e.printStackTrace();
         }
     }
+
+    /*class WorkerThreadsStateChecker implements Runnable {
+
+    }*/
 }

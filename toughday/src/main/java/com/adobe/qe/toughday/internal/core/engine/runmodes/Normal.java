@@ -24,6 +24,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Description(desc = "Runs tests normally.")
 public class Normal implements RunMode, Cloneable {
@@ -59,6 +62,7 @@ public class Normal implements RunMode, Cloneable {
 
     private RunContext context = null;
     private DriverRebalanceContext driverRebalanceContext = null;
+    private AtomicBoolean interruptRunMode = new AtomicBoolean(false);
 
     @ConfigArgGet
     public int getConcurrency() {
@@ -194,8 +198,6 @@ public class Normal implements RunMode, Cloneable {
         rampDown();
     }
 
-
-
     private void createAndExecuteWorker(Engine engine, TestSuite testSuite) {
         AsyncTestWorkerImpl testWorker = new AsyncTestWorkerImpl(engine, phase, testSuite, phase.getPublishMode().getRunMap().newInstance());
         synchronized (testWorkers) {
@@ -217,18 +219,20 @@ public class Normal implements RunMode, Cloneable {
         // every 'interval' milliseconds, we'll create 'rate' workers
         if (start < end) {
             addWorkerScheduler.scheduleAtFixedRate(() -> {
-                for (int i = 0; i < rate; ++i) {
-                    // if all the workers have been created
-                    if (activeThreads >= end) {
-                        addWorkerScheduler.shutdownNow();
+                if (!interruptRunMode.get()) {
+                    for (int i = 0; i < rate; ++i) {
+                        // if all the workers have been created
+                        if (activeThreads >= end) {
+                            addWorkerScheduler.shutdownNow();
 
-                        // mark workers as finished
-                        for(AsyncTestWorker testWorker : testWorkers) {
-                            testWorker.finishExecution();
+                            // mark workers as finished
+                            for (AsyncTestWorker testWorker : testWorkers) {
+                                testWorker.finishExecution();
+                            }
+                            break;
+                        } else {
+                            createAndExecuteWorker(engine, testSuite);
                         }
-                        break;
-                    } else {
-                        createAndExecuteWorker(engine, testSuite);
                     }
                 }
             }, this.initialDelay, interval, TimeUnit.MILLISECONDS);
@@ -238,34 +242,34 @@ public class Normal implements RunMode, Cloneable {
     private void rampDown() {
         // every 'interval' milliseconds, we'll stop 'rate' workers
         if (end < start) {
-            ThreadPoolExecutor executor = (ThreadPoolExecutor)testsExecutorService;
-
             removeWorkerScheduler.scheduleAtFixedRate(() -> {
-                Iterator<AsyncTestWorker> testWorkerIterator = testWorkers.iterator();
-                int toRemove = rate;
+                if (!interruptRunMode.get()) {
+                    Iterator<AsyncTestWorker> testWorkerIterator = testWorkers.iterator();
+                    int toRemove = rate;
 
-                while (testWorkerIterator.hasNext()) {
-                    // if all the workers have been removed
-                    if (activeThreads <= end) {
-                        removeWorkerScheduler.shutdownNow();
+                    while (testWorkerIterator.hasNext()) {
+                        // if all the workers have been removed
+                        if (activeThreads <= end) {
+                            removeWorkerScheduler.shutdownNow();
 
-                        // mark all the workers as finished, so the timeout checker will stop the execution
-                        for(AsyncTestWorker testWorker : testWorkers) {
-                            testWorker.finishExecution();
-                        }
-                        break;
-                    } else {
-                        AsyncTestWorker testWorker = testWorkerIterator.next();
-                        testWorker.finishExecution();
-
-                        // remove the stopped worker
-                        testWorkerIterator.remove();
-                        --toRemove;
-                        --activeThreads;
-
-                        // if rate users have been removed
-                        if (toRemove == 0) {
+                            // mark all the workers as finished, so the timeout checker will stop the execution
+                            for (AsyncTestWorker testWorker : testWorkers) {
+                                testWorker.finishExecution();
+                            }
                             break;
+                        } else {
+                            AsyncTestWorker testWorker = testWorkerIterator.next();
+                            testWorker.finishExecution();
+
+                            // remove the stopped worker
+                            testWorkerIterator.remove();
+                            --toRemove;
+                            --activeThreads;
+
+                            // if rate users have been removed
+                            if (toRemove == 0) {
+                                break;
+                            }
                         }
                     }
                 }
@@ -275,7 +279,7 @@ public class Normal implements RunMode, Cloneable {
 
     public RunContext getRunContext() {
         if (context == null) {
-            context = new RunContext() {
+            context = new AbstractRunContext() {
                 @Override
                 public Collection<AsyncTestWorker> getTestWorkers() {
                     return testWorkers;
@@ -334,6 +338,11 @@ public class Normal implements RunMode, Cloneable {
         }
 
         return driverRebalanceContext;
+    }
+
+    @Override
+    public void interruptRunMode(boolean value) {
+        this.interruptRunMode.set(value);
     }
 
     private Normal setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
@@ -456,6 +465,7 @@ public class Normal implements RunMode, Cloneable {
                 localTests.put(localTest.getId(), localTest);
             }
             this.localRunMap = localRunMap;
+            this.state = State.RUNNING;
         }
 
         /**
@@ -468,6 +478,12 @@ public class Normal implements RunMode, Cloneable {
             mutex.lock();
             try {
                 while(!isFinished()) {
+                    stateLock.lock();
+                    if (this.state == State.INTERRUPTED) {
+                        stateLock.unlock();
+                        continue;
+                    }
+
                     currentTest = Engine.getNextTest(this.testSuite, phase.getCounts(), engine.getEngineSync());
                     // if no test available, finish
                     if (null == currentTest) {

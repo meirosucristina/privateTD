@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.yaml.snakeyaml.Yaml;
+import sun.rmi.runtime.Log;
 
 
 import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
@@ -45,6 +46,7 @@ public class Driver {
     private static final String EXECUTION_PATH = "/config";
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String SUBMIT_TASK_PATH = "/submitTask";
+    private static final String REBALANCE_PATH = "/rebalance";
     private static final String AGENT_PREFIX_NAME = "Agent";
 
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
@@ -57,10 +59,15 @@ public class Driver {
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
-    private Map<String, Long> counts = new HashMap<>();
+    private Map<String, Map<String, Long>> counts = new HashMap<>();
+
 
     public Driver() {
         asyncClient.start();
+    }
+
+    private boolean wasExecutionTrigerred() {
+        return !runningTasks.isEmpty();
     }
 
     private void handleToughdaySampleContent(Configuration configuration) {
@@ -76,6 +83,31 @@ public class Driver {
         }
     }
 
+    private void announceRebalancing() {
+        List<Future<HttpResponse>> futures = new ArrayList<>();
+        LOG.log(Level.INFO, "[Rebalancing] Driver starts announcing agents to interrupt their work.\n");
+        System.out.println("[Rebalancing] Driver starts announcing agents to interrupt their work.\n");
+
+        this.agents.forEach((agentName, agentIp) -> {
+            String URI = URL_PREFIX + agentIp + ":" + PORT + SUBMIT_TASK_PATH;
+            HttpPost rebalanceRequest = new HttpPost(URI);
+
+            Future<HttpResponse> agentResponse = asyncClient.execute(rebalanceRequest, null);
+            futures.add(agentResponse);
+        });
+
+        // wait until all agents have successfully reached the interrupted state.
+        futures.forEach(future -> {
+            try {
+                HttpResponse httpResponse = future.get();
+                LOG.log(Level.INFO, "[Rebalancing] Response code is " + httpResponse.getStatusLine().getStatusCode() + "\n");
+                System.out.println("[Rebalancing] Response code is " + httpResponse.getStatusLine().getStatusCode() + "\n");
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
     private void handleExecutionRequest(Configuration configuration) {
         handleToughdaySampleContent(configuration);
 
@@ -84,7 +116,7 @@ public class Driver {
             try {
                 // set number of executions/test to zero
                 counts = new HashMap<>();
-                phase.getTestSuite().getTests().forEach(test -> counts.put(test.getName(), 0L));
+                phase.getTestSuite().getTests().forEach(test -> counts.put(test.getName(), new HashMap<>()));
 
                 Map<String, Phase> tasks = taskPartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
 
@@ -120,13 +152,25 @@ public class Driver {
 
                 LOG.log(Level.INFO, "Phase " + phase.getName() + " finished execution successfully.");
 
-            } catch (CloneNotSupportedException | ExecutionException | InterruptedException e) {
+            } catch (CloneNotSupportedException | InterruptedException | ExecutionException e) {
                 e.printStackTrace();
             }
         });
     }
 
-    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest) {
+    private Map<String, Long> getExecutionsPerTest() {
+        Map<String, Long> executionsPerTest = new HashMap<>();
+
+        this.counts.keySet().forEach(testName -> executionsPerTest.put(testName, 0L));
+
+        this.counts.forEach((testName, executionsPerAgent) -> {
+            executionsPerTest.put(testName, executionsPerAgent.values().stream().mapToLong(x -> x).sum());
+        });
+
+        return executionsPerTest;
+    }
+
+    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest, String agentName) {
         try {
             HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
             int responseCode = agentResponse.getStatusLine().getStatusCode();
@@ -139,11 +183,12 @@ public class Driver {
                 try {
                     // gson treats numbers as double values by default
                     Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
-                    doubleAgentCounts.forEach((test, agentCount) ->
-                            this.counts.put(test, this.counts.get(test) + agentCount.longValue()));
+                    System.out.println("Am primit count updates de la agentul " + agentName + ": " + doubleAgentCounts.toString());
+                    this.counts.forEach((testName, executionsPerAgent) ->
+                            this.counts.get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
 
                 } catch (Exception e) {
-                    LOG.warn("Executions/test were not successfully received from agent.");
+                    LOG.warn("Executions/test were not successfully received from " + this.agents.get(agentName));
                 }
             }
 
@@ -159,11 +204,7 @@ public class Driver {
             String yamlConfiguration = request.body();
             Configuration configuration = new Configuration(yamlConfiguration);
 
-            new Thread() {
-                public synchronized void run() {
-                    handleExecutionRequest(configuration);
-                }
-            }.start();
+            new Thread(() -> handleExecutionRequest(configuration)).start();
 
             return "";
         }));
@@ -172,10 +213,17 @@ public class Driver {
 
         /* expose http endpoint for registering new agents to the cluster */
         get(REGISTER_PATH, (request, response) -> {
+            // check if we should redistribute tasks to include the new agent
+            if (wasExecutionTrigerred()) {
+                announceRebalancing();
+            }
+
             String agentIp = request.params(REGISTRATION_PARAM).replaceFirst(":", "");
             agents.put(AGENT_PREFIX_NAME + id.getAndIncrement(), agentIp);
 
+            System.out.println("Registered agent with ip " + agentIp);
             LOG.log(Level.INFO, "Registered agent with ip " + agentIp);
+
             return "";
         });
 
@@ -185,7 +233,7 @@ public class Driver {
          */
         heartbeatScheduler.scheduleAtFixedRate(() ->
         {
-                System.out.println("heartbeat runs " + System.currentTimeMillis());
+                // System.out.println("heartbeat runs " + System.currentTimeMillis());
                 for (String agentId : agents.keySet()) {
                     CloseableHttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
 
@@ -203,7 +251,7 @@ public class Driver {
                     int retrial = 3;
                     int responseCode = 0;
                     while (responseCode != 200 && retrial > 0) {
-                        responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
+                        responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest, agentId);
                         retrial -= 1;
                     }
 
@@ -221,6 +269,8 @@ public class Driver {
                         LOG.warn("HeartBeat apache http client could not be closed.");
                     }
                 }
+
+                System.out.println("[heartbeat scheduler] Executions per test: " + getExecutionsPerTest().toString());
         }, 0, heartbeatInterval, TimeUnit.SECONDS);
 
         /* wait for requests */

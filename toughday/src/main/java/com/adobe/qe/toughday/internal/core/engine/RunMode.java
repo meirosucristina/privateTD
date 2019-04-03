@@ -28,6 +28,7 @@ public interface RunMode {
 
     interface RunContext {
         Collection<AsyncTestWorker> getTestWorkers();
+        void interruptWorkers();
         Collection<RunMap> getRunMaps();
         boolean isRunFinished();
     }
@@ -42,5 +43,7 @@ public interface RunMode {
      * @param nrAgents The number of agents sharing this run mode.
      * @return List of run modes (one for every agent)
      */
-    <T> List<T> distributeRunMode(int nrAgents);
+    <T extends RunMode> List<T> distributeRunMode(int nrAgents);
+
+    void interruptRunMode(boolean value);
 }

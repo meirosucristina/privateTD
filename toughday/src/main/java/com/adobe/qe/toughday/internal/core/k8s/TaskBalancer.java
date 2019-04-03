@@ -37,21 +37,21 @@ public class TaskBalancer {
         });
     }
 
-    private void sendRebalanceRequest(String rebalanceInstructions, String agentURI) {
+    static void sendSyncHttpRequest(String requestContent, String agentURI) {
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost rebalanceRequest = new HttpPost(agentURI);
+        HttpPost request = new HttpPost(agentURI);
 
         try {
-            StringEntity params = new StringEntity(rebalanceInstructions);
-            rebalanceRequest.setEntity(params);
-            rebalanceRequest.setHeader("Content-type", "text/plain");
+            StringEntity params = new StringEntity(requestContent);
+            request.setEntity(params);
+            request.setHeader("Content-type", "text/plain");
 
             // submit request and wait for ack from agent
-            HttpResponse response = httpClient.execute(rebalanceRequest);
+            HttpResponse response = httpClient.execute(request);
             System.out.println("Response code is " + response.getStatusLine().getStatusCode());
 
         } catch (IOException e)  {
-            System.out.println("Rebalance instructions could not be sent to  " + agentURI);
+            System.out.println("Http request could not be sent to  " + agentURI);
             System.out.println(e.getMessage());
         }
     }
@@ -72,7 +72,7 @@ public class TaskBalancer {
             // send instructions to agent to change the count property for each test in test suite
             HashMap<String, Long> map = new HashMap<>();
             testSuite.getTests().forEach(test -> map.put(test.getName(), test.getCount()));
-            sendRebalanceRequest(gson.toJson(map), agentURI);
+            sendSyncHttpRequest(gson.toJson(map), agentURI);
         });
     }
 
@@ -85,7 +85,7 @@ public class TaskBalancer {
         // send instructions to agents and wait for confirmation that run modes were updated
         runModeInstructions.forEach((agentName, instructions) -> {
             String agentURI = "http://" + activeAgents.get(agentName) + ":4567" + REBALANCE_RUN_MODE_PATH;
-            sendRebalanceRequest(instructions, agentURI);
+            sendSyncHttpRequest(instructions, agentURI);
         });
     }
 

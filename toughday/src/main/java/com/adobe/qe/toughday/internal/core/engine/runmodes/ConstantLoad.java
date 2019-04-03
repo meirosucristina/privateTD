@@ -61,6 +61,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     private Phase phase;
 
     private Boolean measurable = true;
+    private AtomicBoolean interruptRunMode = new AtomicBoolean(false);
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING, desc = "Set the load, in requests per second for the \"constantload\" runmode.")
     public void setLoad(String load) {
@@ -188,7 +189,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     public RunContext getRunContext() {
-        return new RunContext() {
+        return new AbstractRunContext() {
             @Override
             public Collection<AsyncTestWorker> getTestWorkers() {
                 return testWorkers;
@@ -209,6 +210,11 @@ public class ConstantLoad implements RunMode, Cloneable {
     @Override
     public DriverRebalanceContext getDriverRebalanceContext() {
         return null;
+    }
+
+    @Override
+    public void interruptRunMode(boolean value) {
+        this.interruptRunMode.set(value);
     }
 
     private ConstantLoad setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
