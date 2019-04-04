@@ -3,7 +3,9 @@ package com.adobe.qe.toughday.internal.core.k8s;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.config.RequestConfig;
@@ -13,6 +15,7 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,12 +52,25 @@ public class Driver {
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
+    // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
+    private Map<String, Map<String, Long>> executions = new HashMap<>();
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
 
     public Driver() {
         asyncClient.start();
     }
+
+    private Map<String, Long> getExecutionsPerTest() {
+        Map<String, Long> executionsPerTest = new HashMap<>();
+
+        this.executions.forEach((testName, executionsPerAgent) ->
+                executionsPerTest.put(testName, executionsPerAgent.values().stream().mapToLong(x -> x).sum()));
+
+        return executionsPerTest;
+    }
+
+
 
     private void handleToughdaySampleContent(Configuration configuration) {
         GlobalArgs globalArgs = configuration.getGlobalArgs();
@@ -76,6 +92,8 @@ public class Driver {
         configuration.getPhases().forEach(phase -> {
             try {
                 Map<String, Phase> tasks = taskPartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
+
+                phase.getTestSuite().getTests().forEach(test -> executions.put(test.getName(), new HashMap<>()));
 
                 agents.keySet().forEach(agentId -> {
                     configuration.setPhases(Collections.singletonList(tasks.get(agentId)));
@@ -115,10 +133,32 @@ public class Driver {
         });
     }
 
-    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest) {
+    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest, String agentName) {
         try {
             HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
-            return agentResponse.getStatusLine().getStatusCode();
+            int responseCode = agentResponse.getStatusLine().getStatusCode();
+
+            if (responseCode == 200) {
+                // the agent has sent his statistic for executions/test => aggregate counts
+                Gson gson = new Gson();
+                String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
+
+                try {
+                    // gson treats numbers as double values by default
+                    Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
+                    this.executions.forEach((testName, executionsPerAgent) ->
+                            this.executions.get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
+                    System.out.println("Am primit de la " + agentName + doubleAgentCounts.toString());
+
+                } catch (Exception e) {
+                    System.out.println("Executions/test were not successfully received from " + this.agents.get(agentName));
+                    System.out.println("error message " + e.getMessage());
+                }
+            } else {
+                System.out.println("Response code != 200 for agent " + agentName + ". Value = " + responseCode);
+            }
+
+            return responseCode;
         } catch (IOException e) {
             return -1;
         }
@@ -147,6 +187,7 @@ public class Driver {
             agents.put(AGENT_PREFIX_NAME + id.getAndIncrement(), agentIp);
 
             LOG.log(Level.INFO, "Registered agent with ip " + agentIp);
+            System.out.println("Registered agent with ip " + agentIp);
             return "";
         });
 
@@ -170,7 +211,7 @@ public class Driver {
                 int retrial = 3;
                 int responseCode = 0;
                 while (responseCode != 200 && retrial > 0) {
-                    responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest);
+                    responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest, agentId);
                     retrial -= 1;
                 }
 
@@ -188,6 +229,7 @@ public class Driver {
                     LOG.warn("HeartBeat apache http client could not be closed.");
                 }
             }
+            System.out.println("[hearbeat scheduler] Counts sunt " + this.getExecutionsPerTest().toString());
         }, 0, heartbeatInterval, TimeUnit.SECONDS);
 
         /* wait for requests */

@@ -1,7 +1,9 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
+import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
+import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
@@ -12,6 +14,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 import static spark.Spark.get;
@@ -26,6 +31,7 @@ public class Agent {
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
+    private Engine engine;
 
     private String ipAddress = "";
 
@@ -44,14 +50,32 @@ public class Agent {
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
-            Engine engine = new Engine(configuration);
-            engine.runTests();
+            this.engine = new Engine(configuration);
+            this.engine.runTests();
             LOG.log(Level.INFO, "Successfully completed TD task execution");
 
             return "";
         }));
 
-        get(HEARTBEAT_PATH, ((request, response) -> "Heartbeat acknowledged"));
+        get(HEARTBEAT_PATH, ((request, response) ->
+        {
+            // send to driver the total number of executions/test
+            Gson gson = new Gson();
+            Map<String, Long> currentCounts = new HashMap<>();
+
+            // check if execution has started
+            if (engine == null) {
+                return gson.toJson(currentCounts);
+            }
+
+            Map<AbstractTest, AtomicLong> phaseCounts = engine.getCurrentPhase().getCounts();
+            phaseCounts.forEach((test, count) -> currentCounts.put(test.getName(), count.get()));
+
+            LOG.log(Level.INFO, "Successfully sent count properties to the driver\n.");
+
+            return gson.toJson(currentCounts);
+        }));
+
 
         get("/health", ((request, response) -> "Healthy"));
 
