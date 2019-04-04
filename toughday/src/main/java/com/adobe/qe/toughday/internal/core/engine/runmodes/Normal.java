@@ -25,8 +25,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 @Description(desc = "Runs tests normally.")
 public class Normal implements RunMode, Cloneable {
@@ -63,6 +61,7 @@ public class Normal implements RunMode, Cloneable {
     private RunContext context = null;
     private DriverRebalanceContext driverRebalanceContext = null;
     private AtomicBoolean interruptRunMode = new AtomicBoolean(false);
+    private CyclicBarrier workersBarrier;
 
     @ConfigArgGet
     public int getConcurrency() {
@@ -191,6 +190,8 @@ public class Normal implements RunMode, Cloneable {
             createAndExecuteWorker(engine, testSuite);
         }
 
+        this.workersBarrier = new CyclicBarrier(this.concurrency + 1);
+
         // execute 'rate' workers every 'interval'
         rampUp(engine, testSuite);
 
@@ -234,6 +235,9 @@ public class Normal implements RunMode, Cloneable {
                             createAndExecuteWorker(engine, testSuite);
                         }
                     }
+
+                    this.workersBarrier.reset();
+                    this.workersBarrier = new CyclicBarrier(activeThreads + 1);
                 }
             }, this.initialDelay, interval, TimeUnit.MILLISECONDS);
         }
@@ -272,6 +276,9 @@ public class Normal implements RunMode, Cloneable {
                             }
                         }
                     }
+
+                    this.workersBarrier.reset();
+                    this.workersBarrier = new CyclicBarrier(activeThreads + 1);
                 }
             }, initialDelay, interval, TimeUnit.MILLISECONDS);
         }
@@ -302,6 +309,11 @@ public class Normal implements RunMode, Cloneable {
         }
 
         return context;
+    }
+
+    @Override
+    public CyclicBarrier getWorkersBarrier() {
+        return this.workersBarrier;
     }
 
     public DriverRebalanceContext getDriverRebalanceContext() {
@@ -478,10 +490,24 @@ public class Normal implements RunMode, Cloneable {
             mutex.lock();
             try {
                 while(!isFinished()) {
-                    stateLock.lock();
                     if (this.state == State.INTERRUPTED) {
-                        stateLock.unlock();
                         continue;
+                    }
+
+                    if (this.state == State.INTERRUPTING) {
+                        // wait until all workers reach the barrier
+                        try {
+                            System.out.println("Worker " + this.workerThread.getId() + " awaits for barrier");
+                            workersBarrier.await();
+                        } catch (BrokenBarrierException e) {
+                            /* number of active threads was changed because of rampUp/rampDown so we need to
+                             * restart the waiting process. */
+                            System.out.println("Worker " + this.workerThread.getId() + " was reset while waiting for barrier.");
+                            continue;
+                        }
+
+                        // set state to INTERRUPTED
+                        this.state = State.INTERRUPTED;
                     }
 
                     currentTest = Engine.getNextTest(this.testSuite, phase.getCounts(), engine.getEngineSync());
@@ -497,7 +523,6 @@ public class Normal implements RunMode, Cloneable {
                     currentTest = localTests.get(currentTest.getId());
 
                     // else, continue with the run
-
                     AbstractTestRunner runner = RunnersContainer.getInstance().getRunner(currentTest);
 
                     lastTestStart = System.nanoTime();

@@ -14,8 +14,6 @@ package com.adobe.qe.toughday.internal.core.engine;
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -28,10 +26,10 @@ public abstract class AsyncTestWorker extends AsyncEngineWorker {
     protected AbstractTest currentTest;
     protected ReentrantLock mutex;
     protected State state;
-    protected Lock stateLock = new ReentrantLock();
 
     public enum State {
         RUNNING, /* worker is running tests in the test suite */
+        INTERRUPTING, /* worker is finished executing the current test and prepares for interrupted state */
         INTERRUPTED /* worker was interrupted */
     }
 
@@ -70,9 +68,9 @@ public abstract class AsyncTestWorker extends AsyncEngineWorker {
 
     public abstract boolean hasExited();
 
-    public Lock getStateLock() {
+    /*public ReentrantReadWriteLock getStateLock() {
         return this.stateLock;
-    }
+    }*/
 
     public void setState(State state) {
         this.state = state;

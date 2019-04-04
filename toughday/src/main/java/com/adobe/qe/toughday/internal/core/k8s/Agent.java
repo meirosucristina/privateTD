@@ -2,19 +2,18 @@ package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
-import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.yaml.snakeyaml.Yaml;
 
-import java.io.IOException;
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,6 +33,7 @@ public class Agent {
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
     private static final String REBALANCE_PATH = "/rebalance";
+    private final  CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private String ipAddress = "";
@@ -41,6 +41,8 @@ public class Agent {
     private AtomicBoolean rebalanceRequest = new AtomicBoolean(false);
 
     public void start() {
+
+        asyncClient.start();
 
         try {
             ipAddress = InetAddress.getLocalHost().getHostAddress();
@@ -67,17 +69,25 @@ public class Agent {
             System.out.println("Received request to interrupt TD execution.\n");
             this.rebalanceRequest.set(true);
 
-            // we should interrupt all worker threads in order to stop running tests
-            this.engine.getCurrentPhase().getRunMode().getRunContext().interruptWorkers();
-            LOG.log(Level.INFO, "All test workers were successfully interrupted.\n");
-            System.out.println("All test workers were successfully interrupted.\n");
-
             /* prevent run mode from creating/interrupting test worker threads during ramp up
              * or ramp down until work is completely rebalanced.
              */
             this.engine.getCurrentPhase().getRunMode().interruptRunMode(true);
             LOG.log(Level.INFO, "Run mode is no longer creating/deleting worker threads.\n");
             System.out.println("Run mode is no longer creating/deleting worker threads.\n");
+
+            // we should interrupt all worker threads in order to stop running tests
+            this.engine.getCurrentPhase().getRunMode().getRunContext().interruptWorkers();
+            LOG.log(Level.INFO, "All test workers were successfully interrupted.\n");
+            System.out.println("All test workers were successfully interrupted.\n");
+
+            System.out.println("wait for barrier");
+            try {
+                this.engine.getCurrentPhase().getRunMode().getWorkersBarrier().await();
+            } catch (Exception e) {
+                System.out.println("[rebalancing] exception while barrer.await() " + e.getMessage());
+            }
+            System.out.println("barrier reached by all workers");
 
             return AgentStates.WAITING_BALANCING_INSTRUCTIONS;
         })));
@@ -119,11 +129,12 @@ public class Agent {
                     PORT + DRIVER_REGISTER_PATH + "/:" + this.ipAddress);
 
             /* submit request and check response code */
-            HttpResponse driverResponse = httpClient.execute(registerRequest);
-            LOG.log(Level.INFO, "Driver response code for registration request " +
-                    driverResponse.getStatusLine().getStatusCode());
 
-        } catch (IOException e) {
+            asyncClient.execute(registerRequest, null);
+           /* LOG.log(Level.INFO, "Driver response code for registration request " +
+                    driverResponse.getStatusLine().getStatusCode());*/
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }

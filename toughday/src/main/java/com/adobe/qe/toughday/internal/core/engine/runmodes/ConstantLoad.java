@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -205,6 +206,11 @@ public class ConstantLoad implements RunMode, Cloneable {
                 return scheduler.isFinished();
             }
         };
+    }
+
+    @Override
+    public CyclicBarrier getWorkersBarrier() {
+        return null;
     }
 
     @Override
