@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Class responsible for dividing phases into multiple tasks to be distributed between the
  * agents running in the K8s cluster.
  */
-public class TaskPartitioner {
+public class PhasePartitioner {
 
     public Map<String, TestSuite> distributeTestSuite(TestSuite initialTestSuite, List<String> agents) {
         Map<String, TestSuite> taskTestSuites = new HashMap<>();

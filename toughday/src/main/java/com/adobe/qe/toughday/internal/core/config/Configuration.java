@@ -261,8 +261,8 @@ public class Configuration {
     }
 
     private boolean executeInDitributedMode(ConfigParams configParams) {
-        return configParams.getGlobalParams().containsKey("distributedmode") && (
-                boolean) configParams.getGlobalParams().get("distributedmode");
+        return configParams.getGlobalParams().containsKey("k8srun") && (
+                boolean) configParams.getGlobalParams().get("k8srun");
     }
 
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
@@ -278,7 +278,7 @@ public class Configuration {
             }
 
             GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
-            generateYaml.getGlobals().remove("distributedmode");
+            generateYaml.getGlobals().remove("k8srun");
             generateYaml.getGlobals().remove("driverip");
             new ExecutionTrigger(generateYaml.createYamlStringRepresentation(),
                     String.valueOf(configParams.getGlobalParams().get("driverip"))).triggerExecution();
