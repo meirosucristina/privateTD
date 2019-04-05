@@ -8,14 +8,16 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 
@@ -30,12 +32,15 @@ public class Agent {
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String TASK_PATH = "/submitTask";
+    private static final String REBALANCE_PATH = "/rebalance";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
-    private Engine engine;
 
+    private Engine engine;
     private String ipAddress = "";
+    private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
 
     public void start() {
+        asyncClient.start();
 
         try {
             ipAddress = InetAddress.getLocalHost().getHostAddress();
@@ -76,6 +81,18 @@ public class Agent {
             return gson.toJson(currentCounts);
         }));
 
+        post(REBALANCE_PATH, (((request, response) ->  {
+            if (this.engine == null) {
+                // this agent has recently joined the cluster => skip this request
+                return "ack";
+            }
+
+            String instructionsMessage = request.body();
+            System.out.println("[rebalancing - agent] Received " + instructionsMessage + " from driver");
+
+            return "ack";
+        })));
+
 
         get("/health", ((request, response) -> "Healthy"));
 
@@ -86,21 +103,15 @@ public class Agent {
     /**
      * Method responsible for registering the current agent to the driver. Should be the
      * first method executed.
+     * It might take a while for the driver to send a response to the agent(in case rebalancing is
+     * required) so the request should be asynchronous.
      */
     private void register() {
         /* send register request to K8s driver */
-        try {
-            HttpClient httpClient = HttpClientBuilder.create().build();
-            HttpGet registerRequest = new HttpGet("http://driver" + ":" +
-                    PORT + DRIVER_REGISTER_PATH + "/:" + this.ipAddress);
+        HttpGet registerRequest = new HttpGet("http://driver" + ":" +
+                PORT + DRIVER_REGISTER_PATH + "/:" + this.ipAddress);
 
-            /* submit request and check response code */
-            HttpResponse driverResponse = httpClient.execute(registerRequest);
-            LOG.log(Level.INFO, "Driver response code for registration request " +
-                    driverResponse.getStatusLine().getStatusCode());
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        /* submit request and check response code */
+        Future<HttpResponse> driverResponse = asyncClient.execute(registerRequest, null);
     }
 }

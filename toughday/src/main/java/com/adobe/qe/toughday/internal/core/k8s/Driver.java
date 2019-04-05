@@ -54,8 +54,11 @@ public class Driver {
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
     // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
     private Map<String, Map<String, Long>> executions = new HashMap<>();
+    private Map<String, String> recentlyAddedAgents = new HashMap<>();
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
+    private final TaskBalancer taskBalancer = new TaskBalancer();
+    private Phase currentPhase;
 
     public Driver() {
         asyncClient.start();
@@ -71,6 +74,9 @@ public class Driver {
     }
 
 
+    private boolean areTasksRunning() {
+        return !this.runningTasks.isEmpty();
+    }
 
     private void handleToughdaySampleContent(Configuration configuration) {
         GlobalArgs globalArgs = configuration.getGlobalArgs();
@@ -93,6 +99,7 @@ public class Driver {
             try {
                 Map<String, Phase> tasks = taskPartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
 
+                this.currentPhase = phase;
                 phase.getTestSuite().getTests().forEach(test -> executions.put(test.getName(), new HashMap<>()));
 
                 agents.keySet().forEach(agentId -> {
@@ -146,12 +153,18 @@ public class Driver {
                 try {
                     // gson treats numbers as double values by default
                     Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
+                    // recently added agents might not execute tests yet
+                    if (doubleAgentCounts.isEmpty()) {
+                        return responseCode;
+                    }
+
                     this.executions.forEach((testName, executionsPerAgent) ->
                             this.executions.get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
                     System.out.println("Am primit de la " + agentName + doubleAgentCounts.toString());
 
                 } catch (Exception e) {
                     System.out.println("Executions/test were not successfully received from " + this.agents.get(agentName));
+                    e.printStackTrace();
                     System.out.println("error message " + e.getMessage());
                 }
             } else {
@@ -184,10 +197,21 @@ public class Driver {
         /* expose http endpoint for registering new agents to the cluster */
         get(REGISTER_PATH, (request, response) -> {
             String agentIp = request.params(REGISTRATION_PARAM).replaceFirst(":", "");
-            agents.put(AGENT_PREFIX_NAME + id.getAndIncrement(), agentIp);
+            String agentName = AGENT_PREFIX_NAME + id.getAndIncrement();
+            //
 
-            LOG.log(Level.INFO, "Registered agent with ip " + agentIp);
+            if (areTasksRunning()) {
+                this.recentlyAddedAgents.put(agentName, agentIp);
+
+                taskBalancer.rebalanceWork(this.currentPhase, getExecutionsPerTest(), agents, this.recentlyAddedAgents);
+
+                System.out.println("Registered agent with ip " + agentIp);
+                return "";
+            }
+
+            agents.put(agentName, agentIp);
             System.out.println("Registered agent with ip " + agentIp);
+            System.out.println("agents : " + agents.keySet().toString());
             return "";
         });
 
