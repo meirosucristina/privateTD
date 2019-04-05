@@ -40,7 +40,7 @@ public class Main {
         if (Arrays.asList(args).contains("--k8sagent=true")) {
             Agent agent = new Agent();
             agent.start();
-        } else if (Arrays.asList(args).contains("--drivermode=true")) {
+        } else if (Arrays.asList(args).contains("--k8sdriver=true")) {
             Driver driver = new Driver();
             driver.run();
         }

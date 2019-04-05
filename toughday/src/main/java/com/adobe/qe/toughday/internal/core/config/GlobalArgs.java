@@ -59,9 +59,9 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     private boolean saveConfig = Boolean.parseBoolean(DEFAULT_SAVE_CONFIG);
     private boolean showSteps = false;
     private boolean hostValidationEnabled = true;
-    private boolean distributedMode = false;
+    private boolean k8sRun = false;
     private boolean k8sAgent = false;
-    private boolean driverMode = false;
+    private boolean k8sdriver = false;
     private String logPath;
     private String driverIp = null;
 
@@ -378,13 +378,13 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     }
 
     @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, runs toughday distributed on Kubernetes.")
-    public void setDistributedMode(String distributedMode) {
-        this.distributedMode = Boolean.parseBoolean(distributedMode);
+    public void setK8sRun(String k8sRun) {
+        this.k8sRun = Boolean.parseBoolean(k8sRun);
     }
 
     @ConfigArgGet
-    public boolean getDistributedMode() {
-        return this.distributedMode;
+    public boolean getK8sRun() {
+        return this.k8sRun;
     }
 
     @ConfigArgSet(required = false, desc = "The public ip address of the cluster. The driver" +
@@ -408,14 +408,14 @@ public class GlobalArgs implements com.adobe.qe.toughday.api.core.config.GlobalA
     }
 
     @ConfigArgGet
-    public boolean getDriverMode() {
-        return this.driverMode;
+    public boolean getK8sdriver() {
+        return this.k8sdriver;
     }
 
     @ConfigArgSet(required = false, defaultValue = "false", desc = "If true, TD runs as a driver in the cluster," +
             " distributing the work between the agents.")
-    public void setDriverMode(String driverMode) {
-        this.driverMode = Boolean.parseBoolean(driverMode);
+    public void setK8sdriver(String k8sdriver) {
+        this.k8sdriver = Boolean.parseBoolean(k8sdriver);
     }
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOG_PATH, desc = "The path where the logs folder will be created.")

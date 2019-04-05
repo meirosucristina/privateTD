@@ -14,8 +14,8 @@ import org.junit.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TaskPartitionerTest {
-    private final TaskPartitioner taskPartitioner = new TaskPartitioner();
+public class PhasePartitionerTest {
+    private final PhasePartitioner phasePartitioner = new PhasePartitioner();
     private List<String> cmdLineArgs;
     private static ReflectionsContainer reflections = ReflectionsContainer.getInstance();
 
@@ -36,17 +36,17 @@ public class TaskPartitionerTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testNullPhaseThrowsException() throws CloneNotSupportedException {
-        taskPartitioner.splitPhase(null, new ArrayList<>());
+        phasePartitioner.splitPhase(null, new ArrayList<>());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testNullListOfAgentsThrowsException() throws CloneNotSupportedException {
-        taskPartitioner.splitPhase(new Phase(), null);
+        phasePartitioner.splitPhase(new Phase(), null);
     }
 
     @Test(expected = IllegalStateException.class)
     public void testNoAvailableAgentsThrowsException() throws CloneNotSupportedException {
-        taskPartitioner.splitPhase(new Phase(), new ArrayList<>());
+        phasePartitioner.splitPhase(new Phase(), new ArrayList<>());
     }
 
     @Test
@@ -55,7 +55,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
         configuration.getPhases().forEach(phase -> {
             try {
-                Map<String, Phase> taskMap = taskPartitioner.splitPhase(phase, mockAgents);
+                Map<String, Phase> taskMap = phasePartitioner.splitPhase(phase, mockAgents);
                 Assert.assertEquals(mockAgents.size(), taskMap.keySet().size());
             } catch (CloneNotSupportedException e) {
                 e.printStackTrace();
@@ -69,7 +69,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2", "Agent3");
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
 
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         Assert.assertEquals(108, ((Normal) taskMap.get("Agent1").getRunMode()).getConcurrency());
         Assert.assertEquals(106, ((Normal) taskMap.get("Agent2").getRunMode()).getConcurrency());
         Assert.assertEquals(106, ((Normal) taskMap.get("Agent3").getRunMode()).getConcurrency());
@@ -81,7 +81,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2", "Agent3");
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
 
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         Assert.assertEquals(62, ((ConstantLoad) taskMap.get("Agent1").getRunMode()).getLoad());
         Assert.assertEquals(60, ((ConstantLoad) taskMap.get("Agent2").getRunMode()).getLoad());
         Assert.assertEquals(60, ((ConstantLoad) taskMap.get("Agent3").getRunMode()).getLoad());
@@ -93,7 +93,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
 
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         Normal initialRunMode = (Normal) configuration.getRunMode();
 
         Normal firstAgentRunMode = (Normal) taskMap.get("Agent1").getRunMode();
@@ -117,7 +117,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
 
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         Normal initialRunMode = (Normal) configuration.getRunMode();
 
         Normal firstAgentRunMode = (Normal) taskMap.get("Agent1").getRunMode();
@@ -143,7 +143,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
 
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
 
         ConstantLoad firstAgentRunMode = (ConstantLoad) taskMap.get("Agent1").getRunMode();
         Assert.assertEquals(2, firstAgentRunMode.getStart());
@@ -162,7 +162,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2", "Agent3");
 
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         ConstantLoad initialRunMode = (ConstantLoad) configuration.getPhases().get(0).getRunMode();
 
         taskMap.forEach((key, value) -> {
@@ -196,7 +196,7 @@ public class TaskPartitionerTest {
         Normal initialRunMode = (Normal) configuration.getPhases().get(0).getRunMode();
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2", "Agent3");
 
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(configuration.getPhases().get(0), mockAgents);
         taskMap.forEach((key, value) ->
                 Assert.assertEquals(initialRunMode.getWaitTime(), ((Normal) value.getRunMode()).getWaitTime()));
     }
@@ -207,7 +207,7 @@ public class TaskPartitionerTest {
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
 
         Phase phase = new Configuration(cmdLineArgs.toArray(new String[0])).getPhases().get(0);
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(phase, mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(phase, mockAgents);
 
         taskMap.get("Agent1").getTestSuite().getTests().forEach(test -> {
             Assert.assertEquals(101, test.getCount());
@@ -228,7 +228,7 @@ public class TaskPartitionerTest {
                 .map(AbstractTest::getName)
                 .collect(Collectors.toSet());
 
-        Map<String, Phase> taskMap = taskPartitioner.splitPhase(phase, mockAgents);
+        Map<String, Phase> taskMap = phasePartitioner.splitPhase(phase, mockAgents);
         taskMap.forEach((key, value) -> {
             Set<String> namesDiff = value.getTestSuite().getTests().stream()
                     .map(AbstractTest::getName)

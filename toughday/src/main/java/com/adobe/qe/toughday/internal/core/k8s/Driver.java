@@ -72,10 +72,10 @@ public class Driver {
     private void handleExecutionRequest(Configuration configuration) {
         handleToughdaySampleContent(configuration);
 
-        TaskPartitioner taskPartitioner = new TaskPartitioner();
+        PhasePartitioner phasePartitioner = new PhasePartitioner();
         configuration.getPhases().forEach(phase -> {
             try {
-                Map<String, Phase> tasks = taskPartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
+                Map<String, Phase> tasks = phasePartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
 
                 agents.keySet().forEach(agentId -> {
                     configuration.setPhases(Collections.singletonList(tasks.get(agentId)));
