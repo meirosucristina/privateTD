@@ -49,20 +49,20 @@ public class PhasePartitioner {
         }
 
         Map<String, Phase> taskPerAgent = new HashMap<>();
-        List<RunMode> partitionRunModes = phase.getRunMode().distributeRunMode(agents.size());
+        Map<String, RunMode> partitionRunModes = phase.getRunMode().getRunModePartitioner().distributeRunMode(phase.getRunMode(), agents);
         Map<String, TestSuite> partitionTestSuites = distributeTestSuite(phase.getTestSuite(), agents);
 
-        for (int i = 0; i < agents.size(); i++) {
+        for (String agent : agents) {
             Phase taskPhase = (Phase) phase.clone();
-            TestSuite taskTestSuite = partitionTestSuites.get(agents.get(i));
+            TestSuite taskTestSuite = partitionTestSuites.get(agent);
 
             // set the count (the number of executions since the beginning of the run) of each test to 0
             taskTestSuite.getTests().forEach(test -> taskPhase.getCounts().put(test, new AtomicLong(0)));
 
             taskPhase.setTestSuite(taskTestSuite);
-            taskPhase.setRunMode(partitionRunModes.get(i));
+            taskPhase.setRunMode(partitionRunModes.get(agent));
 
-            taskPerAgent.put(agents.get(i), taskPhase);
+            taskPerAgent.put(agent, taskPhase);
         }
 
         return taskPerAgent;

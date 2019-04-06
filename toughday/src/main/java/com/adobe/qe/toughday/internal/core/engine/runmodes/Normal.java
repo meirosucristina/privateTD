@@ -18,9 +18,12 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
+import com.adobe.qe.toughday.internal.core.k8s.RunModePartitioners.NormalRunModePartitioner;
+import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.xml.stream.events.EndDocument;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -57,8 +60,10 @@ public class Normal implements RunMode, Cloneable {
     private long initialDelay = 0;
 
     private RunContext context = null;
+    private RunModePartitioner<Normal> runModePartitioner = new NormalRunModePartitioner();
+    private Engine engine;
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getConcurrency() {
         return concurrency;
     }
@@ -68,6 +73,11 @@ public class Normal implements RunMode, Cloneable {
     public void setConcurrency(String concurrencyString) {
         checkNotNegative(Long.parseLong(concurrencyString), "concurrency");
         this.concurrency = Integer.parseInt(concurrencyString);
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 
     @ConfigArgGet
@@ -82,7 +92,7 @@ public class Normal implements RunMode, Cloneable {
         this.waitTime = Integer.parseInt(waitTime);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getStart() {
         return start;
     }
@@ -96,12 +106,13 @@ public class Normal implements RunMode, Cloneable {
         this.start = Integer.valueOf(start);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getRate() {
         return rate;
     }
 
-    @ConfigArgSet(required = false, desc = "The number of threads added per time unit. When it equals -1, it means it is not set.", defaultValue = "-1")
+    @ConfigArgSet(required = false, desc = "The number of threads added per time unit. When it equals -1, it means it is not set.",
+            defaultValue = "-1")
     public void setRate(String rate) {
         if (!rate.equals("-1")) {
             checkNotNegative(Long.parseLong(rate), "rate");
@@ -109,17 +120,22 @@ public class Normal implements RunMode, Cloneable {
         this.rate = Integer.valueOf(rate);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public String getInterval() {
         return String.valueOf(this.interval / 1000) + 's';
     }
 
-    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add threads.", defaultValue = DEFAULT_INTERVAL_STRING)
+    public void setInitialDelay(long initialDelay) {
+        this.initialDelay = initialDelay;
+    }
+
+    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add threads.",
+            defaultValue = DEFAULT_INTERVAL_STRING)
     public void setInterval(String interval) {
         this.interval = GlobalArgs.parseDurationToSeconds(interval) * 1000;
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getEnd() {
         return end;
     }
@@ -152,13 +168,14 @@ public class Normal implements RunMode, Cloneable {
         }
     }
 
-    private boolean isVariableConcurrency() {
+    public boolean isVariableConcurrency() {
         return start != -1 && end != -1;
     }
 
     @Override
     public void runTests(Engine engine) {
         checkInvalidArgs();
+        this.engine = engine;
 
         this.phase = engine.getCurrentPhase();
         TestSuite testSuite = phase.getTestSuite();
@@ -298,55 +315,43 @@ public class Normal implements RunMode, Cloneable {
         return context;
     }
 
-    private Normal setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
-                                                   int endRemainder, int startRemainder,
-                                                   int concurrencyRemainder, int agentId) {
-        Normal clone = null;
-        try {
-            clone = (Normal) this.clone();
-        } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
-        }
+    private void processPropertyChange(String property, String newValue) {
+        if (property.equals("concurrency")) {
+            System.out.println("[rebalance processor] Processing concurrency change");
+            long newConcurrency = Long.parseLong(newValue);
+            long difference = this.concurrency - newConcurrency;
 
-        if (isVariableConcurrency()) {
-            if (this.rate > nrAgents) {
-                clone.setRate(String.valueOf(this.getRate() / nrAgents + rateRemainder));
-                clone.setStart(String.valueOf(this.getStart() / nrAgents + startRemainder));
-                clone.setEnd(String.valueOf(this.getEnd() / nrAgents + endRemainder));
+            System.out.println("[rebalance processsor] concurrency difference is " + difference);
+
+            if (difference > 0) {
+                // kill some test workers
+                for (int i = 0; i < difference; i++) {
+                    this.testWorkers.get(i).finishExecution();
+                    System.out.println("[rebalance processor] Finished test worker " + this.testWorkers.get(i).getWorkerThread().getId());
+                }
             } else {
-                clone.initialDelay = agentId * this.interval;
-                clone.setInterval(String.valueOf(this.interval / 1000 * nrAgents) + 's');
-
-                if (agentId > 0) {
-                    clone.setStart("0");
-                    clone.setEnd(String.valueOf((this.end - this.start) / nrAgents));
-                } else {
-                    long diff = this.end - this.start;
-                    clone.setEnd(String.valueOf(diff / nrAgents + diff % nrAgents + this.start ));
+                // create a few more test workers
+                for (int i = 0; i < Math.abs(difference); i++) {
+                    System.out.println("[rebalance processor] Creating a new test worker...");
+                    createAndExecuteWorker(engine, engine.getCurrentPhase().getTestSuite());
                 }
             }
-        } else {
-            /* we must distribute the concurrency level */
-            clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents + concurrencyRemainder));
-        }
 
-       return clone;
+            System.out.println("[rebalance processor] Successfully updated the state to respect the new value of concurrency.");
+
+        }
     }
 
     @Override
-    public List<RunMode> distributeRunMode(int nrAgents) {
-        List<RunMode> taskRunModes = new ArrayList<>();
+    public void processRebalanceInstructions(TaskBalancer.RebalanceInstructions rebalanceInstructions) {
+        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
 
-        Normal firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents, this.end % nrAgents,
-                this.start % nrAgents, this.concurrency % nrAgents, 0);
-        taskRunModes.add(firstTask);
+        runModeProperties.forEach(this::processPropertyChange);
+    }
 
-        for (int i = 1; i < nrAgents; i++) {
-            Normal task = setParamsForDistributedRunMode(nrAgents, 0, 0, 0, 0, i);
-            taskRunModes.add(task);
-        }
-
-        return taskRunModes;
+    @Override
+    public RunModePartitioner<Normal> getRunModePartitioner() {
+        return this.runModePartitioner;
     }
 
     @Override

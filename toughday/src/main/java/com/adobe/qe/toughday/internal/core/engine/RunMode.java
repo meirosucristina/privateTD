@@ -12,9 +12,11 @@ governing permissions and limitations under the License.
 package com.adobe.qe.toughday.internal.core.engine;
 
 import com.adobe.qe.toughday.api.core.RunMap;
+import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
 public interface RunMode {
@@ -22,6 +24,7 @@ public interface RunMode {
     void finishExecutionAndAwait();
     ExecutorService getExecutorService();
     RunContext getRunContext();
+    <T extends RunMode> RunModePartitioner<T> getRunModePartitioner();
 
     interface RunContext {
         Collection<AsyncTestWorker> getTestWorkers();
@@ -29,11 +32,9 @@ public interface RunMode {
         boolean isRunFinished();
     }
 
-    /**
-     * Knows how to distribute the this run mode between multiple agents while
-     * preserving the initial configuration parameters.
-     * @param nrAgents The number of agents sharing this run mode.
-     * @return List of run modes (one for every agent)
-     */
-    List<RunMode> distributeRunMode(int nrAgents);
+    interface RunModePartitioner<T extends RunMode> extends Cloneable {
+        Map<String, T> distributeRunMode(T runMode, List<String> agents);
+    }
+
+     void processRebalanceInstructions(TaskBalancer.RebalanceInstructions rebalanceInstructions);
 }

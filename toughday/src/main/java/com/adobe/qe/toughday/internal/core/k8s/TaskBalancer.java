@@ -1,50 +1,100 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
+import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
+import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 
 /**
  * Class responsible for balancing the work between the agents running the cluster
  * whenever the number of agents is changing.
  */
 public class TaskBalancer {
-    private static final String REBALANCE_TEST_SUITE_PATH = "/rebalanceTests";
-    private static final String REBALANCE_RUN_MODE_PATH = "/rebalanceRunMode";
     private static final String REBALANCE_PATH = "/rebalance";
 
-    private final TaskPartitioner taskPartitioner = new TaskPartitioner();
+    private final PhasePartitioner phasePartitioner = new PhasePartitioner();
+    private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
+
+    public TaskBalancer() {
+        this.asyncClient.start();
+    }
 
     /* Contains all the information needed by the agents for updating their configuration when
      * the work needs to be rebalanced.
      */
-    private class RebalanceInstructions {
-        private final Map<String, Long> counts;
-        //private final Map<String, Object> runModeProperties;
+    public static class RebalanceInstructions {
+        private Map<String, Long> counts;
+        private Map<String, String> runModeProperties;
 
-        public RebalanceInstructions(Map<String, Long> counts) {
-            this.counts = counts;
-            //this.runModeProperties = runModeProperties;
+        // dummy constructor, required for Jackson
+        public RebalanceInstructions() {
+
         }
 
-        // required by Jackson
+        public RebalanceInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {
+            this.counts = counts;
+            this.runModeProperties = runModeProperties;
+        }
+
+        // public getters are required by Jackson
         public Map<String, Long> getCounts() {
             return this.counts;
         }
+
+        public void setCounts(Map<String, Long> counts) {
+            this.counts = counts;
+        }
+
+        public Map<String, String> getRunModeProperties() { return this.runModeProperties; }
+
+        public void setRunModeProperties(Map<String, String> runModeProperties) {
+            this.runModeProperties = runModeProperties;
+        }
+    }
+
+    private Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
+        final Map<String, String> properties = new HashMap<>();
+
+        Arrays.stream(type.getDeclaredMethods())
+                .filter(method -> method.isAnnotationPresent(ConfigArgGet.class))
+                .filter(method -> method.getAnnotation(ConfigArgGet.class).redistribute())
+                .forEach(method -> {
+                    try {
+                        String propertyName = Configuration.propertyFromMethod(method.getName());
+                        Object value = method.invoke(object);
+
+                        properties.put(propertyName, String.valueOf(value));
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        e.printStackTrace();
+                    }
+                });
+
+        return properties;
+    }
+
+    private Map<String, Long> getTestSuitePropertiesToRedistribute(TestSuite taskTestSuite) {
+        HashMap<String, Long> map = new HashMap<>();
+        taskTestSuite.getTests().forEach(test -> map.put(test.getName(), test.getCount()));
+
+        return map;
     }
 
     private void updateCountPerTest(Phase phase, Map<String, Long> executionsPerTest) {
@@ -52,11 +102,28 @@ public class TaskBalancer {
             long remained = test.getCount() - executionsPerTest.get(test.getName());
             if (remained < 0) {
                 // set this to 0 so that the agents will know to delete the test from the test suite
-                phase.getTestSuite().remove(test.getName());
+                test.setCount("0");
+                // phase.getTestSuite().remove(test.getName());
             } else {
                 test.setCount(String.valueOf(remained));
             }
         });
+    }
+
+    static Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
+                                                     CloseableHttpAsyncClient asyncClient) {
+        HttpPost taskRequest = new HttpPost(URI);
+        try {
+            StringEntity params = new StringEntity(content);
+            taskRequest.setEntity(params);
+            taskRequest.setHeader("Content-type", "text/plain");
+
+            return asyncClient.execute(taskRequest, null);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+
+        return null;
     }
 
     static void sendSyncHttpRequest(String requestContent, String agentURI) {
@@ -78,33 +145,38 @@ public class TaskBalancer {
         }
     }
 
-    private void requestTestRebalancing(Phase phase, Map<String, Long> executionsPerTest,
-                                        ConcurrentHashMap<String, String> activeAgents,
-                                        Map<String, String> recentlyAddedAgents) {
+    private Map<String, Future<HttpResponse>> requestRebalancing
+            (Phase phase, Map<String, Long> executionsPerTest,
+            ConcurrentHashMap<String, String> activeAgents,
+            Map<String, String> recentlyAddedAgents,
+            Configuration configuration) throws CloneNotSupportedException {
+        Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
         // start by updating the number of tests that are left to be executed by the agents
         updateCountPerTest(phase, executionsPerTest);
+
         List<String> agentNames = new ArrayList<>(activeAgents.keySet());
         agentNames.addAll(recentlyAddedAgents.keySet());
 
+        Map<String, Phase> phases = phasePartitioner.splitPhase(phase, agentNames);
+
         System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
-        Map<String,TestSuite> taskTestSuites = taskPartitioner.distributeTestSuite(phase.getTestSuite(),
-                agentNames);
         ObjectMapper mapper = new ObjectMapper();
 
         // convert each task test suite into instructions for agents to update their test suite
         activeAgents.forEach((agentName, agentIp) -> {
             String agentURI = "http://" + activeAgents.get(agentName) + ":4567" + REBALANCE_PATH;
-            TestSuite testSuite = taskTestSuites.get(agentName);
+            TestSuite testSuite = phases.get(agentName).getTestSuite();
+            RunMode runMode = phases.get(agentName).getRunMode();
 
-            // send instructions to agent to change the count property for each test in test suite
-            HashMap<String, Long> map = new HashMap<>();
-            testSuite.getTests().forEach(test -> map.put(test.getName(), test.getCount()));
+            // set new value for count property
+            Map<String, Long> testSuiteProperties = getTestSuitePropertiesToRedistribute(testSuite);
+            Map<String, String> runModeProperties = this.getRunModePropertiesToRedistribute(runMode.getClass(), runMode);
 
-            RebalanceInstructions rebalanceInstructions = new RebalanceInstructions(map);
+            RebalanceInstructions rebalanceInstructions = new RebalanceInstructions(testSuiteProperties, runModeProperties);
             try {
                 String instructionMessage = mapper.writeValueAsString(rebalanceInstructions);
                 System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName);
-                // TODO: THINK WHETHER THIS SHOULD BE ASYNC OR NOT
+
                 sendSyncHttpRequest(instructionMessage, agentURI);
 
             } catch (JsonProcessingException e) {
@@ -114,32 +186,36 @@ public class TaskBalancer {
         });
 
         // for the recently added agents, send execution queries
+        recentlyAddedAgents.forEach((newAgentName, newAgentIp) -> {
+            configuration.setPhases(Collections.singletonList(phases.get(newAgentName)));
+            YamlDumpConfiguration dumpConfig = new YamlDumpConfiguration(configuration);
+            String yamlTask = dumpConfig.generateConfigurationObject();
+            String URI = "http://" + newAgentIp + ":4567" + "/submitTask";
+
+            System.out.println("[task balancer] sending execution request to new agent " + newAgentName);
+            Future<HttpResponse> future  =
+                    TaskBalancer.sendAsyncHttpRequest(URI, yamlTask, this.asyncClient);
+            newRunningTasks.put(newAgentName, future);
+
+        });
+
+        return newRunningTasks;
     }
 
-    /*private void requestRunModeRebalancing(Phase phase, ConcurrentHashMap<String, String> activeAgents) {
-        // build messages for updating run mode properties in the agent
-        Map<String, String> runModeInstructions = phase.getRunMode()
-                .getDriverRebalanceContext()
-                .getInstructionsForRebalancingWork(phase, activeAgents.keySet().toArray(new String[0]));
-
-        // send instructions to agents and wait for confirmation that run modes were updated
-        runModeInstructions.forEach((agentName, instructions) -> {
-            String agentURI = "http://" + activeAgents.get(agentName) + ":4567" + REBALANCE_RUN_MODE_PATH;
-            sendSyncHttpRequest(instructions, agentURI);
-        });
-    }*/
-
-    public void rebalanceWork(Phase phase, Map<String, Long> executionsPerTest,
+    public Map<String, Future<HttpResponse>> rebalanceWork(Phase phase, Map<String, Long> executionsPerTest,
                               ConcurrentHashMap<String, String> activeAgents,
-                              Map<String, String> recentlyAddedAgents) {
+                              Map<String, String> recentlyAddedAgents,
+                              Configuration configuration) {
+        Map<String, Future<HttpResponse>> newRunningTasks = null;
         System.out.println("[Rebalance] Starting....");
 
-        requestTestRebalancing(phase, executionsPerTest, activeAgents, recentlyAddedAgents);
-        //requestRunModeRebalancing(phase, activeAgents);
+        try {
+           newRunningTasks = requestRebalancing(phase, executionsPerTest, activeAgents, recentlyAddedAgents, configuration);
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
 
-        // mark recently added agents as active task executors
-        activeAgents.putAll(recentlyAddedAgents);
-        recentlyAddedAgents.clear();
+        return newRunningTasks;
     }
 
 }

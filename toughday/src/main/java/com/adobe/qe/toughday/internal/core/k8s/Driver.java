@@ -3,15 +3,12 @@ package com.adobe.qe.toughday.internal.core.k8s;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
-import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
@@ -52,12 +49,13 @@ public class Driver {
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
+    private Map<String, String> recentlyAddedAgents = new HashMap<>();
     // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
     private Map<String, Map<String, Long>> executions = new HashMap<>();
-    private Map<String, String> recentlyAddedAgents = new HashMap<>();
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
     private final TaskBalancer taskBalancer = new TaskBalancer();
+    private Configuration configuration;
     private Phase currentPhase;
 
     public Driver() {
@@ -72,7 +70,6 @@ public class Driver {
 
         return executionsPerTest;
     }
-
 
     private boolean areTasksRunning() {
         return !this.runningTasks.isEmpty();
@@ -109,23 +106,11 @@ public class Driver {
                     YamlDumpConfiguration dumpConfig = new YamlDumpConfiguration(configuration);
                     String yamlTask = dumpConfig.generateConfigurationObject();
 
-                    try {
-                        /* build HTTP query with yaml configuration as body */
-                        String URI = URL_PREFIX + agents.get(agentId) + ":" + PORT + SUBMIT_TASK_PATH;
+                    /* send query to agent and register running task */
+                    String URI = URL_PREFIX + agents.get(agentId) + ":" + PORT + SUBMIT_TASK_PATH;
+                    runningTasks.put(agentId, TaskBalancer.sendAsyncHttpRequest(URI, yamlTask, asyncClient));
 
-                        HttpPost taskRequest = new HttpPost(URI);
-                        StringEntity params = new StringEntity(yamlTask);
-                        taskRequest.setEntity(params);
-                        taskRequest.setHeader("Content-type", "text/plain");
-
-                        Future<HttpResponse> taskResponse = asyncClient.execute(taskRequest, null);
-                        runningTasks.put(agentId, taskResponse);
-
-                        LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentId));
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                    LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentId));
                 });
 
                 // we should wait until all agents complete the current tasks in order to execute phases sequentially
@@ -182,6 +167,7 @@ public class Driver {
         post(EXECUTION_PATH, ((request, response) -> {
             String yamlConfiguration = request.body();
             Configuration configuration = new Configuration(yamlConfiguration);
+            this.configuration = configuration;
 
             new Thread() {
                 public synchronized void run() {
@@ -198,12 +184,20 @@ public class Driver {
         get(REGISTER_PATH, (request, response) -> {
             String agentIp = request.params(REGISTRATION_PARAM).replaceFirst(":", "");
             String agentName = AGENT_PREFIX_NAME + id.getAndIncrement();
-            //
 
             if (areTasksRunning()) {
                 this.recentlyAddedAgents.put(agentName, agentIp);
 
-                taskBalancer.rebalanceWork(this.currentPhase, getExecutionsPerTest(), agents, this.recentlyAddedAgents);
+                Map<String, Future<HttpResponse>> newRunningTasks =
+                        taskBalancer.rebalanceWork(this.currentPhase, getExecutionsPerTest(),
+                                agents, this.recentlyAddedAgents, this.configuration);
+
+                // start monitoring the new tasks
+                runningTasks.putAll(newRunningTasks);
+
+                // mark recently added agents as active task executors
+                agents.putAll(recentlyAddedAgents);
+                recentlyAddedAgents.clear();
 
                 System.out.println("Registered agent with ip " + agentIp);
                 return "";

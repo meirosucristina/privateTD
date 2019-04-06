@@ -5,9 +5,7 @@ import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.Level;
@@ -37,6 +35,7 @@ public class Agent {
 
     private Engine engine;
     private String ipAddress = "";
+    private final RebalanceRequestProcessor rebalanceReqProcessor = new RebalanceRequestProcessor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
 
     public void start() {
@@ -52,9 +51,11 @@ public class Agent {
         register();
 
         post(TASK_PATH, ((request, response) ->  {
+            System.out.println("[Agent - Task path] Received execution request");
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
+            System.out.println("[Agent - Task path] Starting execution...");
             this.engine = new Engine(configuration);
             this.engine.runTests();
             LOG.log(Level.INFO, "Successfully completed TD task execution");
@@ -89,6 +90,7 @@ public class Agent {
 
             String instructionsMessage = request.body();
             System.out.println("[rebalancing - agent] Received " + instructionsMessage + " from driver");
+            this.rebalanceReqProcessor.processRequest(request, this.engine.getCurrentPhase());
 
             return "ack";
         })));

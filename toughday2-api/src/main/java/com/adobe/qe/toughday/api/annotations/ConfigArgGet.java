@@ -26,4 +26,5 @@ import java.lang.annotation.Target;
 @Target(value = ElementType.METHOD)
 public @interface ConfigArgGet {
     String name() default "";
+    boolean redistribute() default false;
 }

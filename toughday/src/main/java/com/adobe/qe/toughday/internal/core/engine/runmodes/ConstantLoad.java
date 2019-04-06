@@ -20,6 +20,8 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.k8s.RunModePartitioners.ConstantLoadRunModePartitioner;
+import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
 import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,19 +61,21 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     private TestCache testCache;
     private Phase phase;
+    private RunModePartitioner<ConstantLoad> runModePartitioner = new ConstantLoadRunModePartitioner();
 
     private Boolean measurable = true;
 
-    @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING, desc = "Set the load, in requests per second for the \"constantload\" runmode.")
+    @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING,
+            desc = "Set the load, in requests per second for the \"constantload\" runmode.")
     public void setLoad(String load) {
         checkNotNegative(Long.parseLong(load), "load");
         this.load = Integer.parseInt(load);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getLoad() { return this.load; }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getStart() {
         return start;
     }
@@ -85,12 +89,13 @@ public class ConstantLoad implements RunMode, Cloneable {
         this.start = Integer.valueOf(start);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getRate() {
         return rate;
     }
 
-    @ConfigArgSet(required = false, desc = "The increase in load per time unit. When it equals -1, it means it is not set.", defaultValue = "-1")
+    @ConfigArgSet(required = false, desc = "The increase in load per time unit. When it equals -1, it means it is not set.",
+            defaultValue = "-1")
     public void setRate(String rate) {
         if (!rate.equals("-1")) {
             checkNotNegative(Long.parseLong(rate), "rate");
@@ -98,17 +103,18 @@ public class ConstantLoad implements RunMode, Cloneable {
         this.rate = Integer.valueOf(rate);
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public String getInterval() {
         return String.valueOf(interval / 1000) + 's';
     }
 
-    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add increase the load.", defaultValue = DEFAULT_INTERVAL_STRING)
+    @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add increase the load.",
+            defaultValue = DEFAULT_INTERVAL_STRING)
     public void setInterval(String interval) {
         this.interval = GlobalArgs.parseDurationToSeconds(interval) * 1000;
     }
 
-    @ConfigArgGet
+    @ConfigArgGet(redistribute = true)
     public int getEnd() {
         return end;
     }
@@ -123,6 +129,11 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     public int getOneAgentRate() {
         return this.oneAgentRate;
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 
     private static class TestCache {
@@ -143,7 +154,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
-    private boolean isVariableLoad() {
+    public boolean isVariableLoad() {
         return start != -1 && end != -1;
     }
 
@@ -206,52 +217,21 @@ public class ConstantLoad implements RunMode, Cloneable {
         };
     }
 
-    private ConstantLoad setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
-                                                        int startRemainder, int endRemainder,
-                                                        int loadRemainder, int agentId) {
-        ConstantLoad clone = null;
-        try {
-            clone = (ConstantLoad) this.clone();
-        } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
-        }
+    @Override
+    public void processRebalanceInstructions(TaskBalancer.RebalanceInstructions rebalanceInstructions) {
+    }
 
-        if (isVariableLoad()) {
-            if (this.rate > nrAgents) {
-                clone.setStart(String.valueOf(this.getStart() / nrAgents + startRemainder));
-                clone.setEnd(String.valueOf(this.getEnd() / nrAgents + endRemainder));
-                clone.setRate(String.valueOf(this.getRate() / nrAgents + rateRemainder));
-            } else {
-                clone.initialDelay = agentId * this.interval;
-                clone.oneAgentRate = this.rate;
-                clone.setStart(String.valueOf(this.start + agentId * this.rate));
-                clone.setRate(String.valueOf(nrAgents * this.rate));
-                clone.setInterval(String.valueOf(this.interval / 1000 * nrAgents) + 's');
-            }
+    public void setInitialDelay(long initialDelay) {
+        this.initialDelay = initialDelay;
+    }
 
-            return clone;
-        }
-
-        /* we must distribute the load between the agents */
-        clone.setLoad(String.valueOf(this.getLoad() / nrAgents + loadRemainder));
-
-        return clone;
+    public void setOneAgentRate(int oneAgentRate) {
+        this.oneAgentRate = oneAgentRate;
     }
 
     @Override
-    public List<RunMode> distributeRunMode(int nrAgents) {
-        List<RunMode> runModes = new ArrayList<>();
-
-        ConstantLoad firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents,
-                this.start % nrAgents, this.end % nrAgents, this.load % nrAgents, 0);
-        runModes.add(firstTask);
-
-        for (int i = 1; i < nrAgents; i++) {
-            ConstantLoad task = setParamsForDistributedRunMode(nrAgents, 0, 0, 0, 0, i);
-            runModes.add(task);
-        }
-
-        return runModes;
+    public RunModePartitioner<ConstantLoad> getRunModePartitioner() {
+        return this.runModePartitioner;
     }
 
     @Override
