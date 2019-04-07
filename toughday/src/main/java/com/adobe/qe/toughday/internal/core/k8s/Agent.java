@@ -19,6 +19,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 
+import static com.adobe.qe.toughday.internal.core.k8s.HttpUtils.*;
 import static spark.Spark.get;
 import static spark.Spark.post;
 
@@ -28,9 +29,6 @@ import static spark.Spark.post;
 public class Agent {
     private static final String PORT = "80";
     private static final String DRIVER_REGISTER_PATH = "/registerAgent";
-    private static final String HEARTBEAT_PATH = "/heartbeat";
-    private static final String TASK_PATH = "/submitTask";
-    private static final String REBALANCE_PATH = "/rebalance";
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
 
     private Engine engine;
@@ -50,7 +48,7 @@ public class Agent {
 
         register();
 
-        post(TASK_PATH, ((request, response) ->  {
+        post(SUBMIT_TASK_PATH, ((request, response) ->  {
             System.out.println("[Agent - Task path] Received execution request");
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);

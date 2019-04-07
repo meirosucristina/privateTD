@@ -23,7 +23,6 @@ import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.xml.stream.events.EndDocument;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -327,6 +326,7 @@ public class Normal implements RunMode, Cloneable {
                 // kill some test workers
                 for (int i = 0; i < difference; i++) {
                     this.testWorkers.get(i).finishExecution();
+                    this.testWorkers.remove(i);
                     System.out.println("[rebalance processor] Finished test worker " + this.testWorkers.get(i).getWorkerThread().getId());
                 }
             } else {
@@ -338,7 +338,6 @@ public class Normal implements RunMode, Cloneable {
             }
 
             System.out.println("[rebalance processor] Successfully updated the state to respect the new value of concurrency.");
-
         }
     }
 

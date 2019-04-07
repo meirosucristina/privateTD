@@ -25,6 +25,7 @@ import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
 
 import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
+import static com.adobe.qe.toughday.internal.core.k8s.HttpUtils.*;
 import static spark.Spark.*;
 
 /**
@@ -32,14 +33,9 @@ import static spark.Spark.*;
  */
 public class Driver {
 
-    private static final String URL_PREFIX = "http://";
     private static final String PORT = "4567";
     private static final String REGISTRATION_PARAM = ":ipAddress";
     private static final String REGISTER_PATH = "/registerAgent/" + REGISTRATION_PARAM;
-    private static final String EXECUTION_PATH = "/config";
-    private static final String HEARTBEAT_PATH = "/heartbeat";
-    private static final String SUBMIT_TASK_PATH = "/submitTask";
-    private static final String AGENT_PREFIX_NAME = "Agent";
 
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
     private static final AtomicInteger id = new AtomicInteger(0);
@@ -57,6 +53,7 @@ public class Driver {
     private final TaskBalancer taskBalancer = new TaskBalancer();
     private Configuration configuration;
     private Phase currentPhase;
+    private final HttpUtils httpUtils = new HttpUtils();
 
     public Driver() {
         asyncClient.start();
@@ -108,7 +105,7 @@ public class Driver {
 
                     /* send query to agent and register running task */
                     String URI = URL_PREFIX + agents.get(agentId) + ":" + PORT + SUBMIT_TASK_PATH;
-                    runningTasks.put(agentId, TaskBalancer.sendAsyncHttpRequest(URI, yamlTask, asyncClient));
+                    runningTasks.put(agentId, this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, asyncClient));
 
                     LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentId));
                 });
@@ -145,7 +142,7 @@ public class Driver {
 
                     this.executions.forEach((testName, executionsPerAgent) ->
                             this.executions.get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
-                    System.out.println("Am primit de la " + agentName + doubleAgentCounts.toString());
+                    //System.out.println("Am primit de la " + agentName + doubleAgentCounts.toString());
 
                 } catch (Exception e) {
                     System.out.println("Executions/test were not successfully received from " + this.agents.get(agentName));
@@ -153,7 +150,7 @@ public class Driver {
                     System.out.println("error message " + e.getMessage());
                 }
             } else {
-                System.out.println("Response code != 200 for agent " + agentName + ". Value = " + responseCode);
+                //System.out.println("Response code != 200 for agent " + agentName + ". Value = " + responseCode);
             }
 
             return responseCode;
@@ -247,7 +244,7 @@ public class Driver {
                     LOG.warn("HeartBeat apache http client could not be closed.");
                 }
             }
-            System.out.println("[hearbeat scheduler] Counts sunt " + this.getExecutionsPerTest().toString());
+            System.out.println("[heartbeat] Total nr of executions " + this.getExecutionsPerTest().toString());
         }, 0, heartbeatInterval, TimeUnit.SECONDS);
 
         /* wait for requests */

@@ -9,15 +9,9 @@ import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,6 +26,7 @@ public class TaskBalancer {
 
     private final PhasePartitioner phasePartitioner = new PhasePartitioner();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
+    private final HttpUtils httpUtils = new HttpUtils();
 
     public TaskBalancer() {
         this.asyncClient.start();
@@ -110,41 +105,6 @@ public class TaskBalancer {
         });
     }
 
-    static Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
-                                                     CloseableHttpAsyncClient asyncClient) {
-        HttpPost taskRequest = new HttpPost(URI);
-        try {
-            StringEntity params = new StringEntity(content);
-            taskRequest.setEntity(params);
-            taskRequest.setHeader("Content-type", "text/plain");
-
-            return asyncClient.execute(taskRequest, null);
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-    }
-
-    static void sendSyncHttpRequest(String requestContent, String agentURI) {
-        HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost request = new HttpPost(agentURI);
-
-        try {
-            StringEntity params = new StringEntity(requestContent);
-            request.setEntity(params);
-            request.setHeader("Content-type", "text/plain");
-
-            // submit request and wait for ack from agent
-            HttpResponse response = httpClient.execute(request);
-            System.out.println("Response code is " + response.getStatusLine().getStatusCode());
-
-        } catch (IOException e)  {
-            System.out.println("Http request could not be sent to  " + agentURI);
-            System.out.println(e.getMessage());
-        }
-    }
-
     private Map<String, Future<HttpResponse>> requestRebalancing
             (Phase phase, Map<String, Long> executionsPerTest,
             ConcurrentHashMap<String, String> activeAgents,
@@ -159,7 +119,7 @@ public class TaskBalancer {
 
         Map<String, Phase> phases = phasePartitioner.splitPhase(phase, agentNames);
 
-        System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
+        // System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
         ObjectMapper mapper = new ObjectMapper();
 
         // convert each task test suite into instructions for agents to update their test suite
@@ -177,7 +137,7 @@ public class TaskBalancer {
                 String instructionMessage = mapper.writeValueAsString(rebalanceInstructions);
                 System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName);
 
-                sendSyncHttpRequest(instructionMessage, agentURI);
+                this.httpUtils.sendSyncHttpRequest(instructionMessage, agentURI);
 
             } catch (JsonProcessingException e) {
                 e.printStackTrace();
@@ -194,7 +154,7 @@ public class TaskBalancer {
 
             System.out.println("[task balancer] sending execution request to new agent " + newAgentName);
             Future<HttpResponse> future  =
-                    TaskBalancer.sendAsyncHttpRequest(URI, yamlTask, this.asyncClient);
+                    this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, this.asyncClient);
             newRunningTasks.put(newAgentName, future);
 
         });
