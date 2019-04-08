@@ -1,27 +1,30 @@
-package com.adobe.qe.toughday.internal.core.k8s.RunModePartitioners;
+package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
+import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ConstantLoadRunModePartitioner implements RunMode.RunModePartitioner<ConstantLoad> {
+public class ConstantLoadRunModeSplitter implements RunMode.RunModePartitioner<ConstantLoad> {
 
     private ConstantLoad setParamsForDistributedRunMode(ConstantLoad runMode, int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,
                                                         int loadRemainder, int agentId) {
-        ConstantLoad clone = null;
+        ConstantLoad clone;
         try {
             clone = (ConstantLoad) runMode.clone();
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
+            return runMode;
         }
 
         if (runMode.isVariableLoad()) {
-            if (runMode.getRate()> nrAgents) {
+            if (runMode.getRate() >= nrAgents) {
                 clone.setStart(String.valueOf(runMode.getStart()/ nrAgents + startRemainder));
                 clone.setEnd(String.valueOf(runMode.getEnd()/ nrAgents + endRemainder));
                 clone.setRate(String.valueOf(runMode.getRate()/ nrAgents + rateRemainder));
@@ -58,6 +61,20 @@ public class ConstantLoadRunModePartitioner implements RunMode.RunModePartitione
         }
 
         return runModes;
+    }
+
+    @Override
+    public Map<String, ConstantLoad> distributeRunModeForRebalancingWork(ConstantLoad runMode, List<String> oldAgents,
+                                                                         List<String> newAgents) {
+        List<String> agents = new ArrayList<>(oldAgents);
+        agents.addAll(newAgents);
+
+        Map<String, ConstantLoad> taskRunModes = distributeRunMode(runMode, agents);
+
+        // set start property to 'rate' for each new agent
+        newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart(String.valueOf(taskRunModes.get(agentName).getRate())));
+
+        return taskRunModes;
     }
 
 }

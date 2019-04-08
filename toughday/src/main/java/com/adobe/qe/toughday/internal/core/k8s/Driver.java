@@ -4,6 +4,7 @@ import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -68,6 +69,10 @@ public class Driver {
         return executionsPerTest;
     }
 
+    private void removeAgentFromExecutionsMap(String agentName) {
+        this.executions.forEach((test, executionsPerAgent) -> this.executions.get(test).remove(agentName));
+    }
+
     private boolean areTasksRunning() {
         return !this.runningTasks.isEmpty();
     }
@@ -88,10 +93,10 @@ public class Driver {
     private void handleExecutionRequest(Configuration configuration) {
         handleToughdaySampleContent(configuration);
 
-        PhasePartitioner phasePartitioner = new PhasePartitioner();
+        PhaseSplitter phaseSplitter = new PhaseSplitter();
         configuration.getPhases().forEach(phase -> {
             try {
-                Map<String, Phase> tasks = phasePartitioner.splitPhase(phase, new ArrayList<>(agents.keySet()));
+                Map<String, Phase> tasks = phaseSplitter.splitPhase(phase, new ArrayList<>(agents.keySet()));
 
                 this.currentPhase = phase;
                 phase.getTestSuite().getTests().forEach(test -> executions.put(test.getName(), new HashMap<>()));
@@ -232,9 +237,16 @@ public class Driver {
 
                 if (retrial <= 0) {
                     LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
+                    System.out.println("Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
                     agents.remove(agentId);
 
+                    // redistribute the work between the active agents
+                    this.taskBalancer.rebalanceWork(this.currentPhase, this.getExecutionsPerTest(),
+                            this.agents, new HashMap<>(), this.configuration);
+
                     // TODO: change this when the new pod is able to resume the task
+                    System.out.println("Removing agent " + agentId + " from map of executions. ");
+                    removeAgentFromExecutionsMap(agentId);
                     runningTasks.remove(agentId);
                 }
 

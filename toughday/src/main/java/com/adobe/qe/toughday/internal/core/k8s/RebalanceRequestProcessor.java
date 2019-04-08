@@ -39,6 +39,8 @@ public class RebalanceRequestProcessor {
 
                     System.out.println("[rebalance processor] Setting count for test " + test.getName() + " to value: " + counts.get(test.getName()));
                 });
+
+        System.out.println("[rebalance processor] new phase counts is " + phase.getCounts().toString());
     }
 
     private void processRunModeChanges(Map<String, String> runModeProperties, RunMode runMode) {
@@ -65,8 +67,8 @@ public class RebalanceRequestProcessor {
         ObjectMapper objectMapper = new ObjectMapper();
 
         System.out.println("[rebalance processor] Starting...");
-        TaskBalancer.RebalanceInstructions rebalanceInstructions =
-                objectMapper.readValue(jsonContent, TaskBalancer.RebalanceInstructions.class);
+        RebalanceInstructions rebalanceInstructions =
+                objectMapper.readValue(jsonContent, RebalanceInstructions.class);
 
         // prepare run mode for the new configuration
         phase.getRunMode().processRebalanceInstructions(rebalanceInstructions);

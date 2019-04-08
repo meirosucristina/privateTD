@@ -68,14 +68,14 @@ public class Agent {
             Map<String, Long> currentCounts = new HashMap<>();
 
             // check if execution has started
-            if (engine == null) {
+            if (engine == null || engine.getCurrentPhase() == null) {
                 return gson.toJson(currentCounts);
             }
 
             Map<AbstractTest, AtomicLong> phaseCounts = engine.getCurrentPhase().getCounts();
             phaseCounts.forEach((test, count) -> currentCounts.put(test.getName(), count.get()));
 
-            LOG.log(Level.INFO, "Successfully sent count properties to the driver\n.");
+            //LOG.log(Level.INFO, "Successfully sent count properties to the driver\n.");
 
             return gson.toJson(currentCounts);
         }));

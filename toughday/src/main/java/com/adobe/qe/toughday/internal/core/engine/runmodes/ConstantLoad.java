@@ -20,8 +20,8 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
-import com.adobe.qe.toughday.internal.core.k8s.RunModePartitioners.ConstantLoadRunModePartitioner;
-import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
 import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,12 +61,12 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     private TestCache testCache;
     private Phase phase;
-    private RunModePartitioner<ConstantLoad> runModePartitioner = new ConstantLoadRunModePartitioner();
+    private RunModePartitioner<ConstantLoad> runModePartitioner = new ConstantLoadRunModeSplitter();
 
     private Boolean measurable = true;
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_LOAD_STRING,
-            desc = "Set the load, in requests per second for the \"constantload\" runmode.")
+            desc = "Set the load, in requests per second for the \"constantload\" runmodes.")
     public void setLoad(String load) {
         checkNotNegative(Long.parseLong(load), "load");
         this.load = Integer.parseInt(load);
@@ -217,8 +217,28 @@ public class ConstantLoad implements RunMode, Cloneable {
         };
     }
 
+    private void processPropertyChange(String property, String newValue) {
+        if (property.equals("load")) {
+            System.out.println("[rebalance processor] Processing load change");
+            long newLoad = Long.valueOf(newValue);
+            long diff = this.currentLoad - newLoad;
+
+            if (diff > 0) {
+                // reduce number of workers to be created
+                this.currentLoad -= diff;
+            } else {
+                // increase number of workers to be created
+                this.currentLoad += diff;
+            }
+
+        }
+    }
+
     @Override
-    public void processRebalanceInstructions(TaskBalancer.RebalanceInstructions rebalanceInstructions) {
+    public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
+        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+
+        runModeProperties.forEach(this::processPropertyChange);
     }
 
     public void setInitialDelay(long initialDelay) {
@@ -230,7 +250,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     @Override
-    public RunModePartitioner<ConstantLoad> getRunModePartitioner() {
+    public RunModePartitioner<ConstantLoad> getRunModeSplitter() {
         return this.runModePartitioner;
     }
 

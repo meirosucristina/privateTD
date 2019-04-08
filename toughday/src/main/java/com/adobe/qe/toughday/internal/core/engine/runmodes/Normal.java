@@ -18,8 +18,9 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
-import com.adobe.qe.toughday.internal.core.k8s.RunModePartitioners.NormalRunModePartitioner;
-import com.adobe.qe.toughday.internal.core.k8s.TaskBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeSplitter;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +60,7 @@ public class Normal implements RunMode, Cloneable {
     private long initialDelay = 0;
 
     private RunContext context = null;
-    private RunModePartitioner<Normal> runModePartitioner = new NormalRunModePartitioner();
+    private RunModePartitioner<Normal> runModePartitioner = new NormalRunModeSplitter();
     private Engine engine;
 
     @ConfigArgGet(redistribute = true)
@@ -91,7 +92,7 @@ public class Normal implements RunMode, Cloneable {
         this.waitTime = Integer.parseInt(waitTime);
     }
 
-    @ConfigArgGet(redistribute = true)
+    @ConfigArgGet()
     public int getStart() {
         return start;
     }
@@ -342,14 +343,14 @@ public class Normal implements RunMode, Cloneable {
     }
 
     @Override
-    public void processRebalanceInstructions(TaskBalancer.RebalanceInstructions rebalanceInstructions) {
+    public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
 
         runModeProperties.forEach(this::processPropertyChange);
     }
 
     @Override
-    public RunModePartitioner<Normal> getRunModePartitioner() {
+    public RunModePartitioner<Normal> getRunModeSplitter() {
         return this.runModePartitioner;
     }
 

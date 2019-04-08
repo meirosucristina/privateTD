@@ -18,7 +18,7 @@ import java.lang.annotation.Target;
 
 /**
  * Use this annotation on a getter to expose it as a configuration property.
- * These properties will be automatically picked up, shown in logging or in "dry" runmode
+ * These properties will be automatically picked up, shown in logging or in "dry" runmodes
  * Supported classes: subtypes of AbstractTest, subtypes of Publisher and
  * GlobalArgs.
  */

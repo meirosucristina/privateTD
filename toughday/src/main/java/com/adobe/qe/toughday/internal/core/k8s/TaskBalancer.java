@@ -6,6 +6,7 @@ import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpResponse;
@@ -16,6 +17,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 /**
  * Class responsible for balancing the work between the agents running the cluster
@@ -24,45 +26,12 @@ import java.util.concurrent.Future;
 public class TaskBalancer {
     private static final String REBALANCE_PATH = "/rebalance";
 
-    private final PhasePartitioner phasePartitioner = new PhasePartitioner();
+    private final PhaseSplitter phaseSplitter = new PhaseSplitter();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final HttpUtils httpUtils = new HttpUtils();
 
     public TaskBalancer() {
         this.asyncClient.start();
-    }
-
-    /* Contains all the information needed by the agents for updating their configuration when
-     * the work needs to be rebalanced.
-     */
-    public static class RebalanceInstructions {
-        private Map<String, Long> counts;
-        private Map<String, String> runModeProperties;
-
-        // dummy constructor, required for Jackson
-        public RebalanceInstructions() {
-
-        }
-
-        public RebalanceInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {
-            this.counts = counts;
-            this.runModeProperties = runModeProperties;
-        }
-
-        // public getters are required by Jackson
-        public Map<String, Long> getCounts() {
-            return this.counts;
-        }
-
-        public void setCounts(Map<String, Long> counts) {
-            this.counts = counts;
-        }
-
-        public Map<String, String> getRunModeProperties() { return this.runModeProperties; }
-
-        public void setRunModeProperties(Map<String, String> runModeProperties) {
-            this.runModeProperties = runModeProperties;
-        }
     }
 
     private Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
@@ -105,24 +74,11 @@ public class TaskBalancer {
         });
     }
 
-    private Map<String, Future<HttpResponse>> requestRebalancing
-            (Phase phase, Map<String, Long> executionsPerTest,
-            ConcurrentHashMap<String, String> activeAgents,
-            Map<String, String> recentlyAddedAgents,
-            Configuration configuration) throws CloneNotSupportedException {
-        Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
-        // start by updating the number of tests that are left to be executed by the agents
-        updateCountPerTest(phase, executionsPerTest);
-
-        List<String> agentNames = new ArrayList<>(activeAgents.keySet());
-        agentNames.addAll(recentlyAddedAgents.keySet());
-
-        Map<String, Phase> phases = phasePartitioner.splitPhase(phase, agentNames);
-
-        // System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
+    private void sendInstructionsToOldAgents(Map<String, Phase> phases,
+                                             ConcurrentHashMap<String, String> activeAgents) {
         ObjectMapper mapper = new ObjectMapper();
 
-        // convert each task test suite into instructions for agents to update their test suite
+        // convert each phase into instructions for olg agents to update their configuration
         activeAgents.forEach((agentName, agentIp) -> {
             String agentURI = "http://" + activeAgents.get(agentName) + ":4567" + REBALANCE_PATH;
             TestSuite testSuite = phases.get(agentName).getTestSuite();
@@ -144,7 +100,11 @@ public class TaskBalancer {
             }
 
         });
+    }
 
+    private void sendExecutionQueriesToNewAgents(Map<String, String> recentlyAddedAgents, Map<String, Phase> phases,
+                                                 Configuration configuration,
+                                                 Map<String, Future<HttpResponse>> newRunningTasks) {
         // for the recently added agents, send execution queries
         recentlyAddedAgents.forEach((newAgentName, newAgentIp) -> {
             configuration.setPhases(Collections.singletonList(phases.get(newAgentName)));
@@ -152,12 +112,32 @@ public class TaskBalancer {
             String yamlTask = dumpConfig.generateConfigurationObject();
             String URI = "http://" + newAgentIp + ":4567" + "/submitTask";
 
-            System.out.println("[task balancer] sending execution request to new agent " + newAgentName);
+            System.out.println("[task balancer] sending execution request + " + yamlTask + " to new agent " + newAgentName);
             Future<HttpResponse> future  =
                     this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, this.asyncClient);
             newRunningTasks.put(newAgentName, future);
 
         });
+    }
+
+    private Map<String, Future<HttpResponse>> requestRebalancing
+            (Phase phase, Map<String, Long> executionsPerTest,
+            ConcurrentHashMap<String, String> activeAgents,
+            Map<String, String> recentlyAddedAgents,
+            Configuration configuration) throws CloneNotSupportedException {
+        // start by updating the number of tests that are left to be executed by the agents
+        updateCountPerTest(phase, executionsPerTest);
+
+        Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
+        List<String> agentNames = new ArrayList<>(activeAgents.keySet());
+        agentNames.addAll(recentlyAddedAgents.keySet());
+
+        Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents.keySet()),
+                new ArrayList<>(recentlyAddedAgents.keySet()));
+
+        // System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
+        sendInstructionsToOldAgents(phases, activeAgents);
+        sendExecutionQueriesToNewAgents(recentlyAddedAgents, phases, configuration, newRunningTasks);
 
         return newRunningTasks;
     }
