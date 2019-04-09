@@ -18,9 +18,8 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
-import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
-import com.adobe.qe.toughday.internal.core.k8s.RunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.NormalRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeSplitter;
 
 import org.slf4j.Logger;

@@ -14,8 +14,8 @@ package com.adobe.qe.toughday;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
-import com.adobe.qe.toughday.internal.core.k8s.Agent;
-import com.adobe.qe.toughday.internal.core.k8s.Driver;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.Agent;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

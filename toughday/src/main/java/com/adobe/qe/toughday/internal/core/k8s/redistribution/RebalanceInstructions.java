@@ -1,4 +1,4 @@
-package com.adobe.qe.toughday.internal.core.k8s;
+package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 
 import java.util.Map;
 

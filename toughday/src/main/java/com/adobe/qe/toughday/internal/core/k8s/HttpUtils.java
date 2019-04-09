@@ -13,12 +13,12 @@ import java.util.concurrent.Future;
 
 public class HttpUtils {
 
-    static final String URL_PREFIX = "http://";
-    static final String EXECUTION_PATH = "/config";
-    static final String HEARTBEAT_PATH = "/heartbeat";
-    static final String SUBMIT_TASK_PATH = "/submitTask";
-    static final String AGENT_PREFIX_NAME = "Agent";
-    static final String REBALANCE_PATH = "/rebalance";
+    public static final String URL_PREFIX = "http://";
+    public static final String EXECUTION_PATH = "/config";
+    public static final String HEARTBEAT_PATH = "/heartbeat";
+    public static final String SUBMIT_TASK_PATH = "/submitTask";
+    public static final String AGENT_PREFIX_NAME = "Agent";
+    public static final String REBALANCE_PATH = "/rebalance";
 
 
     public Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,

@@ -1,9 +1,11 @@
-package com.adobe.qe.toughday.internal.core.k8s;
+package com.adobe.qe.toughday.internal.core.k8s.cluster;
 
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.adobe.qe.toughday.internal.core.k8s.HttpUtils;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.TaskBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;

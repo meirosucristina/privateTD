@@ -1,8 +1,9 @@
-package com.adobe.qe.toughday.internal.core.k8s;
+package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;

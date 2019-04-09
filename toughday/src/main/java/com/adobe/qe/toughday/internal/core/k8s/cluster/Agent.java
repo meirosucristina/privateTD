@@ -1,8 +1,9 @@
-package com.adobe.qe.toughday.internal.core.k8s;
+package com.adobe.qe.toughday.internal.core.k8s.cluster;
 
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceRequestProcessor;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;

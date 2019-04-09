@@ -1,4 +1,4 @@
-package com.adobe.qe.toughday.internal.core.k8s;
+package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 
 import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
@@ -6,6 +6,7 @@ import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.HttpUtils;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,7 +18,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
-import java.util.stream.Collectors;
 
 /**
  * Class responsible for balancing the work between the agents running the cluster

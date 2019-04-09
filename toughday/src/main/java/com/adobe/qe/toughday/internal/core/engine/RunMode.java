@@ -12,7 +12,7 @@ governing permissions and limitations under the License.
 package com.adobe.qe.toughday.internal.core.engine;
 
 import com.adobe.qe.toughday.api.core.RunMap;
-import com.adobe.qe.toughday.internal.core.k8s.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
 
 import java.util.Collection;
 import java.util.List;

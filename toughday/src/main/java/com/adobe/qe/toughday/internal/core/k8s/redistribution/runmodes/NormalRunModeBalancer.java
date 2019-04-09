@@ -1,10 +1,9 @@
-package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
+package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
-import com.adobe.qe.toughday.internal.core.k8s.AbstractRunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
 
 import java.util.ArrayList;
 import java.util.List;
