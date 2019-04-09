@@ -3,14 +3,13 @@ package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
-import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ConstantLoadRunModeSplitter implements RunMode.RunModePartitioner<ConstantLoad> {
+public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<ConstantLoad> {
 
     private ConstantLoad setParamsForDistributedRunMode(ConstantLoad runMode, int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,

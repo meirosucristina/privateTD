@@ -12,9 +12,8 @@ governing permissions and limitations under the License.
 package com.adobe.qe.toughday.internal.core.engine;
 
 import com.adobe.qe.toughday.api.core.RunMap;
-import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.RunModeBalancer;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +24,8 @@ public interface RunMode {
     void finishExecutionAndAwait();
     ExecutorService getExecutorService();
     RunContext getRunContext();
-    <T extends RunMode> RunModePartitioner<T> getRunModeSplitter();
+    <T extends RunMode> RunModeSplitter<T> getRunModeSplitter();
+    <T extends RunMode> RunModeBalancer<T> getRunModeBalancer();
 
     interface RunContext {
         Collection<AsyncTestWorker> getTestWorkers();
@@ -33,10 +33,10 @@ public interface RunMode {
         boolean isRunFinished();
     }
 
-    interface RunModePartitioner<T extends RunMode> extends Cloneable {
+    interface RunModeSplitter<T extends RunMode> extends Cloneable {
         Map<String, T> distributeRunMode(T runMode, List<String> agents);
         Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents);
     }
 
-     void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions);
+     // void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions);
 }

@@ -125,6 +125,10 @@ public class TaskBalancer {
             ConcurrentHashMap<String, String> activeAgents,
             Map<String, String> recentlyAddedAgents,
             Configuration configuration) throws CloneNotSupportedException {
+        // check if one agent failed to respond to heartbeat before TD execution started.
+        if (phase == null) {
+            return new HashMap<>();
+        }
         // start by updating the number of tests that are left to be executed by the agents
         updateCountPerTest(phase, executionsPerTest);
 

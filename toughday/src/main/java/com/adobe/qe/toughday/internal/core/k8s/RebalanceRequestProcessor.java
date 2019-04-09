@@ -9,8 +9,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import spark.Request;
 
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,23 +41,12 @@ public class RebalanceRequestProcessor {
         System.out.println("[rebalance processor] new phase counts is " + phase.getCounts().toString());
     }
 
-    private void processRunModeChanges(Map<String, String> runModeProperties, RunMode runMode) {
-        Arrays.stream(runMode.getClass().getDeclaredMethods())
-                .filter(method -> runModeProperties.containsKey(Configuration.propertyFromMethod(method.getName())))
-                .filter(method -> method.isAnnotationPresent(ConfigArgSet.class))
-                .forEach(method -> {
-                    String property = Configuration.propertyFromMethod(method.getName());
+    private void processRunModeChanges(RebalanceInstructions rebalanceInstructions, RunMode runMode) {
+        runMode.getRunModeBalancer().before(rebalanceInstructions, runMode);
 
-                    if (runModeProperties.containsKey(property)) {
-                        System.out.println("[rebalace request] Setting property " + property + " to " + runModeProperties.get(property));
+        runMode.getRunModeBalancer().processRunModeInstructions(rebalanceInstructions, runMode);
 
-                        try {
-                            method.invoke(runMode, runModeProperties.get(property));
-                        } catch (IllegalAccessException | InvocationTargetException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
+        runMode.getRunModeBalancer().after(rebalanceInstructions, runMode);
     }
 
     public void processRequest(Request request, Phase phase) throws IOException {
@@ -70,12 +57,13 @@ public class RebalanceRequestProcessor {
         RebalanceInstructions rebalanceInstructions =
                 objectMapper.readValue(jsonContent, RebalanceInstructions.class);
 
-        // prepare run mode for the new configuration
+        /*// prepare run mode for the new configuration
         phase.getRunMode().processRebalanceInstructions(rebalanceInstructions);
         System.out.println("[rebalance processor] Run mode has updated the agent. We are ready to modify run mode properties.");
+        */
 
         // update values for each modified property
-        processRunModeChanges(rebalanceInstructions.getRunModeProperties(), phase.getRunMode());
+        processRunModeChanges(rebalanceInstructions, phase.getRunMode());
         System.out.println("[rebalance processor] Updated run mode properties.");
         processTestSuiteChanges(rebalanceInstructions.getCounts(), phase);
         System.out.println("[rebalance processor] Updated test suite properties.");

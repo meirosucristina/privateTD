@@ -21,6 +21,7 @@ import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.RunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
 import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
@@ -61,7 +62,7 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     private TestCache testCache;
     private Phase phase;
-    private RunModePartitioner<ConstantLoad> runModePartitioner = new ConstantLoadRunModeSplitter();
+    private RunModeSplitter<ConstantLoad> runModeSplitter = new ConstantLoadRunModeSplitter();
 
     private Boolean measurable = true;
 
@@ -217,6 +218,11 @@ public class ConstantLoad implements RunMode, Cloneable {
         };
     }
 
+    @Override
+    public <T extends RunMode> RunModeBalancer<T> getRunModeBalancer() {
+        return null;
+    }
+
     private void processPropertyChange(String property, String newValue) {
         if (property.equals("load")) {
             System.out.println("[rebalance processor] Processing load change");
@@ -234,12 +240,12 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
-    @Override
+    /*@Override
     public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
 
         runModeProperties.forEach(this::processPropertyChange);
-    }
+    }*/
 
     public void setInitialDelay(long initialDelay) {
         this.initialDelay = initialDelay;
@@ -250,8 +256,8 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     @Override
-    public RunModePartitioner<ConstantLoad> getRunModeSplitter() {
-        return this.runModePartitioner;
+    public RunModeSplitter<ConstantLoad> getRunModeSplitter() {
+        return this.runModeSplitter;
     }
 
     @Override

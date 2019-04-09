@@ -19,6 +19,8 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.k8s.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeSplitter;
 
 import org.slf4j.Logger;
@@ -43,8 +45,9 @@ public class Normal implements RunMode, Cloneable {
     private static final long DEFAULT_INTERVAL = 1000;
 
     private ExecutorService testsExecutorService;
-    private ScheduledExecutorService addWorkerScheduler = Executors.newSingleThreadScheduledExecutor();
-    private ScheduledExecutorService removeWorkerScheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledExecutorService addWorkerScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService removeWorkerScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledFuture<?> scheduledFuture = null;
 
     private final List<AsyncTestWorker> testWorkers = Collections.synchronizedList(new LinkedList<>());
     private final List<RunMap> runMaps = new ArrayList<>();
@@ -60,8 +63,21 @@ public class Normal implements RunMode, Cloneable {
     private long initialDelay = 0;
 
     private RunContext context = null;
-    private RunModePartitioner<Normal> runModePartitioner = new NormalRunModeSplitter();
+    private RunModeSplitter<Normal> runModeSplitter = new NormalRunModeSplitter();
+    private final RunModeBalancer<Normal> normalRunModeBalancer = new NormalRunModeBalancer();
     private Engine engine;
+
+
+    public Normal() {
+        /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
+         * rescheduled when rebalancing the work between the agents.
+         */
+        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) addWorkerScheduler;
+        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
+
+        scheduledPoolExecutor = (ScheduledThreadPoolExecutor) removeWorkerScheduler;
+        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
+    }
 
     @ConfigArgGet(redistribute = true)
     public int getConcurrency() {
@@ -152,6 +168,22 @@ public class Normal implements RunMode, Cloneable {
         return activeThreads;
     }
 
+    public ScheduledFuture<?> getScheduledFuture() {
+        return this.scheduledFuture;
+    }
+
+    public ScheduledExecutorService getAddWorkerScheduler() {
+        return this.addWorkerScheduler;
+    }
+
+    public ScheduledExecutorService getRemoveWorkerScheduler() {
+        return this.removeWorkerScheduler;
+    }
+
+    public Engine getEngine() {
+        return this.engine;
+    }
+
     private void checkNotNegative(long param, String property) {
         if (param < 0) {
             throw new IllegalArgumentException("Property " + property + " incorrectly configured as negative.");
@@ -211,7 +243,7 @@ public class Normal implements RunMode, Cloneable {
 
 
 
-    private void createAndExecuteWorker(Engine engine, TestSuite testSuite) {
+    public void createAndExecuteWorker(Engine engine, TestSuite testSuite) {
         AsyncTestWorkerImpl testWorker = new AsyncTestWorkerImpl(engine, phase, testSuite, phase.getPublishMode().getRunMap().newInstance());
         synchronized (testWorkers) {
             testWorkers.add(testWorker);
@@ -228,63 +260,68 @@ public class Normal implements RunMode, Cloneable {
         }
     }
 
+    public Runnable getRampUpRunnable(Engine engine, TestSuite testSuite) {
+        return () -> {
+            for (int i = 0; i < rate; ++i) {
+                // if all the workers have been created
+                if (activeThreads >= end) {
+                    addWorkerScheduler.shutdownNow();
+
+                    // mark workers as finished
+                    testWorkers.forEach(AsyncEngineWorker::finishExecution);
+
+                    break;
+                } else {
+                    createAndExecuteWorker(engine, testSuite);
+                }
+            }
+        };
+    }
+
+    public Runnable getRampDownRunnable() {
+        return () -> {
+            Iterator<AsyncTestWorker> testWorkerIterator = testWorkers.iterator();
+            int toRemove = rate;
+
+            while (testWorkerIterator.hasNext()) {
+                // if all the workers have been removed
+                if (activeThreads <= end) {
+                    removeWorkerScheduler.shutdownNow();
+
+                    // mark all the workers as finished, so the timeout checker will stop the execution
+                    testWorkers.forEach(AsyncEngineWorker::finishExecution);
+
+                    break;
+                } else {
+                    AsyncTestWorker testWorker = testWorkerIterator.next();
+                    testWorker.finishExecution();
+
+                    // remove the stopped worker
+                    testWorkerIterator.remove();
+                    --toRemove;
+                    --activeThreads;
+
+                    // if rate users have been removed
+                    if (toRemove == 0) {
+                        break;
+                    }
+                }
+            }
+        };
+    }
+
     private void rampUp(Engine engine, TestSuite testSuite) {
         // every 'interval' milliseconds, we'll create 'rate' workers
         if (start < end) {
-            addWorkerScheduler.scheduleAtFixedRate(() -> {
-                for (int i = 0; i < rate; ++i) {
-                    // if all the workers have been created
-                    if (activeThreads >= end) {
-                        addWorkerScheduler.shutdownNow();
-
-                        // mark workers as finished
-                        for(AsyncTestWorker testWorker : testWorkers) {
-                            testWorker.finishExecution();
-                        }
-                        break;
-                    } else {
-                        createAndExecuteWorker(engine, testSuite);
-                    }
-                }
-            }, this.initialDelay, interval, TimeUnit.MILLISECONDS);
+            this.scheduledFuture = addWorkerScheduler.scheduleAtFixedRate(getRampUpRunnable(engine, testSuite),
+                    this.initialDelay, interval, TimeUnit.MILLISECONDS);
         }
     }
 
     private void rampDown() {
         // every 'interval' milliseconds, we'll stop 'rate' workers
         if (end < start) {
-            ThreadPoolExecutor executor = (ThreadPoolExecutor)testsExecutorService;
-
-            removeWorkerScheduler.scheduleAtFixedRate(() -> {
-                Iterator<AsyncTestWorker> testWorkerIterator = testWorkers.iterator();
-                int toRemove = rate;
-
-                while (testWorkerIterator.hasNext()) {
-                    // if all the workers have been removed
-                    if (activeThreads <= end) {
-                        removeWorkerScheduler.shutdownNow();
-
-                        // mark all the workers as finished, so the timeout checker will stop the execution
-                        for(AsyncTestWorker testWorker : testWorkers) {
-                            testWorker.finishExecution();
-                        }
-                        break;
-                    } else {
-                        AsyncTestWorker testWorker = testWorkerIterator.next();
-                        testWorker.finishExecution();
-
-                        // remove the stopped worker
-                        testWorkerIterator.remove();
-                        --toRemove;
-                        --activeThreads;
-
-                        // if rate users have been removed
-                        if (toRemove == 0) {
-                            break;
-                        }
-                    }
-                }
-            }, initialDelay, interval, TimeUnit.MILLISECONDS);
+            removeWorkerScheduler.scheduleAtFixedRate(getRampDownRunnable(), initialDelay, interval, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -315,8 +352,13 @@ public class Normal implements RunMode, Cloneable {
         return context;
     }
 
-    private void processPropertyChange(String property, String newValue) {
-        if (property.equals("concurrency")) {
+    @Override
+    public RunModeBalancer<Normal> getRunModeBalancer() {
+        return this.normalRunModeBalancer;
+    }
+
+    /*private void processPropertyChange(String property, String newValue) {
+        if (property.equals("concurrency") && !isVariableConcurrency()) {
             System.out.println("[rebalance processor] Processing concurrency change");
             long newConcurrency = Long.parseLong(newValue);
             long difference = this.concurrency - newConcurrency;
@@ -344,14 +386,42 @@ public class Normal implements RunMode, Cloneable {
 
     @Override
     public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
-        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+        if (this.isVariableConcurrency()) {
+            *//* We must cancel the scheduled task and reschedule it with the new values for 'period' and
+             * initial delay.
+             *//*
+            boolean cancelled = this.scheduledFuture.cancel(true);
+            if (!cancelled) {
+                System.out.println("[rebalance processor - run mode] task could not be cancelled.");
+                return;
+            }
 
+            System.out.println("[rebalance processor - run mode] successfully cancelled task.");
+        }
+
+        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
         runModeProperties.forEach(this::processPropertyChange);
-    }
+
+        // TODO: should we wait for all the agents to confirm the interruption on the scheduled task?
+        // reschedule the task
+        if (this.isVariableConcurrency()) {
+            if (start < end) {
+                this.addWorkerScheduler.scheduleAtFixedRate(getRampUpRunnable(engine, engine.getCurrentPhase().getTestSuite()),
+                        this.initialDelay, this.interval, TimeUnit.MILLISECONDS);
+                System.out.println("[rebalance processor - run mode] successfully rescheduled ramp up with interval " +
+                        this.interval + " and initial delay " + this.initialDelay);
+            } else if (start > end) {
+                this.removeWorkerScheduler.scheduleAtFixedRate(getRampDownRunnable(), this.initialDelay, this.interval,
+                        TimeUnit.MILLISECONDS);
+                System.out.println("[rebalance processor - run mode] successfully rescheduled ramp down with interval " +
+                        this.interval + " and initial delay " + this.initialDelay);
+            }
+        }
+    }*/
 
     @Override
-    public RunModePartitioner<Normal> getRunModeSplitter() {
-        return this.runModePartitioner;
+    public RunModeSplitter<Normal> getRunModeSplitter() {
+        return this.runModeSplitter;
     }
 
     @Override

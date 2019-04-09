@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class NormalRunModeSplitter implements RunMode.RunModePartitioner<Normal> {
+public class NormalRunModeSplitter implements RunMode.RunModeSplitter<Normal> {
 
     private Normal setParamsForDistributedRunMode(Normal runMode, int nrAgents, int rateRemainder,
                                                   int endRemainder, int startRemainder,
