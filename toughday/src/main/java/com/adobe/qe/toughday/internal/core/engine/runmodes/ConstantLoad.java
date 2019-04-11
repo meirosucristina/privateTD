@@ -43,7 +43,8 @@ public class ConstantLoad implements RunMode, Cloneable {
     private AtomicBoolean loggedWarning = new AtomicBoolean(false);
 
     private ExecutorService executorService = Executors.newCachedThreadPool();
-    private ScheduledExecutorService repeatableTask = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService rampingScheduler = Executors.newScheduledThreadPool(1);
 
     private Collection<AsyncTestWorker> testWorkers = Collections.synchronizedSet(new HashSet<>());
     private AsyncTestWorkerScheduler scheduler;
@@ -133,7 +134,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
          * rescheduled when rebalancing the work between the agents.
          */
-        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) repeatableTask;
+        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) runRoundScheduler;
         scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
 
     }
@@ -382,47 +383,45 @@ public class ConstantLoad implements RunMode, Cloneable {
 
         @Override
         public void run() {
-            try {
-                currentLoad = load;
+            currentLoad = load;
 
-                // if the rate was not specified and start and end were
-                if (isVariableLoad()) {
-                    if (rate == -1) {
-                        configureRateAndInterval();
-                    }
-
-                    currentLoad = start;
+            // if the rate was not specified and start and end were
+            if (isVariableLoad()) {
+                if (rate == -1) {
+                    configureRateAndInterval();
                 }
 
+                currentLoad = start;
+            }
+
+            runRoundScheduler.scheduleAtFixedRate(() -> {
                 if (!isFinished()) {
-                    // run the current run with the start load
-                    runRound();
-                }
-
-                repeatableTask.scheduleAtFixedRate(() -> {
-                    if (isFinished()) {
-                        // shutdown scheduler and tasks
-                        repeatableTask.shutdownNow();
-                    }
-
-                    // ramp up the load if 'start' was specified
-                    rampUp();
-
-                    // ramp down the load if 'end' was specified
-                    rampDown();
-
                     try {
                         // run the current run with the current load
                         runRound();
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }, initialDelay, interval, TimeUnit.MILLISECONDS);
+                        finishExecution();
+                        LOG.warn("Constant load scheduler thread was interrupted.");
 
-            } catch (InterruptedException e) {
-                finishExecution();
-                LOG.warn("Constant load scheduler thread was interrupted.");
-            }
+                        // gracefully shut down scheduler
+                        runRoundScheduler.shutdown();
+                    }
+                }
+
+            }, 0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
+
+            rampingScheduler.scheduleAtFixedRate(() -> {
+                if (!isFinished()) {
+                    rampUp();
+
+                    rampDown();
+                } else {
+                    // gracefully shut down scheduler
+                    rampingScheduler.shutdown();
+                }
+
+            }, initialDelay, interval, TimeUnit.MILLISECONDS);
+
         }
 
         private void runRound() throws InterruptedException {
