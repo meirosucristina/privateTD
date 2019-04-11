@@ -3,6 +3,7 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
@@ -16,8 +17,7 @@ import org.apache.http.impl.nio.client.HttpAsyncClients;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 /**
  * Class responsible for balancing the work between the agents running the cluster
@@ -29,9 +29,38 @@ public class TaskBalancer {
     private final PhaseSplitter phaseSplitter = new PhaseSplitter();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final HttpUtils httpUtils = new HttpUtils();
+    private final ScheduledExecutorService scheduleRebalance = Executors.newSingleThreadScheduledExecutor();
+    private final ConcurrentLinkedQueue<String> inactiveAgents = new ConcurrentLinkedQueue<>();
+    private ConcurrentHashMap<String, String> recentlyAddedAgents = new ConcurrentHashMap<>();
 
-    public TaskBalancer() {
+    private static TaskBalancer instance = null;
+    private RebalanceState state = RebalanceState.UNNECESSARY;
+
+    public enum RebalanceState {
+        UNNECESSARY,
+        SCHEDULED,
+        RESCHEDULED_REQUIRED,
+        EXECUTING
+    }
+
+    public void setState(RebalanceState state) {
+        this.state = state;
+    }
+
+    public RebalanceState getState() {
+        return this.state;
+    }
+
+    private TaskBalancer() {
         this.asyncClient.start();
+    }
+
+    public static TaskBalancer getInstance() {
+        if (instance == null) {
+            instance = new TaskBalancer();
+        }
+
+        return instance;
     }
 
     private Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
@@ -74,6 +103,22 @@ public class TaskBalancer {
         });
     }
 
+    public void addNewAgent(String agentName, String ipAddress) {
+        this.recentlyAddedAgents.put(agentName, ipAddress);
+    }
+
+    public Map<String, String> getRecentlyAddedAgents() {
+        return this.recentlyAddedAgents;
+    }
+
+    public void addInactiveAgent(String agentName) {
+        this.inactiveAgents.add(agentName);
+    }
+
+    public ConcurrentLinkedQueue<String> getInactiveAgents() {
+        return this.inactiveAgents;
+    }
+
     private void sendInstructionsToOldAgents(Map<String, Phase> phases,
                                              ConcurrentHashMap<String, String> activeAgents) {
         ObjectMapper mapper = new ObjectMapper();
@@ -91,7 +136,7 @@ public class TaskBalancer {
             RebalanceInstructions rebalanceInstructions = new RebalanceInstructions(testSuiteProperties, runModeProperties);
             try {
                 String instructionMessage = mapper.writeValueAsString(rebalanceInstructions);
-                System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName);
+                System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName + ". Ip: " + agentIp);
 
                 this.httpUtils.sendSyncHttpRequest(instructionMessage, agentURI);
 
@@ -133,8 +178,6 @@ public class TaskBalancer {
         updateCountPerTest(phase, executionsPerTest);
 
         Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
-        List<String> agentNames = new ArrayList<>(activeAgents.keySet());
-        agentNames.addAll(recentlyAddedAgents.keySet());
 
         Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents.keySet()),
                 new ArrayList<>(recentlyAddedAgents.keySet()));
@@ -148,15 +191,32 @@ public class TaskBalancer {
 
     public Map<String, Future<HttpResponse>> rebalanceWork(Phase phase, Map<String, Long> executionsPerTest,
                               ConcurrentHashMap<String, String> activeAgents,
-                              Map<String, String> recentlyAddedAgents,
                               Configuration configuration) {
+        this.state = RebalanceState.EXECUTING;
         Map<String, Future<HttpResponse>> newRunningTasks = null;
+        Map<String, String> newAgents = new HashMap<>(recentlyAddedAgents);
+
         System.out.println("[Rebalance] Starting....");
 
         try {
-           newRunningTasks = requestRebalancing(phase, executionsPerTest, activeAgents, recentlyAddedAgents, configuration);
+           newRunningTasks = requestRebalancing(phase, executionsPerTest, activeAgents, newAgents, configuration);
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
+        }
+
+        // mark recently added agents as active agents executing tasks
+        activeAgents.putAll(newAgents);
+        newAgents.forEach((key, value) -> this.recentlyAddedAgents.remove(key));
+
+        if (this.state == RebalanceState.RESCHEDULED_REQUIRED) {
+            this.state = RebalanceState.SCHEDULED;
+            System.out.println("[task balancer] delayed rebalance must be scheduled for new agents = " + this.recentlyAddedAgents.toString());
+            this.scheduleRebalance.schedule(() -> {
+                System.out.println("[task balancer] starting delayed rebalancing...");
+                return rebalanceWork(phase, executionsPerTest, activeAgents, configuration);
+            }, GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+        } else {
+            this.state = RebalanceState.UNNECESSARY;
         }
 
         return newRunningTasks;

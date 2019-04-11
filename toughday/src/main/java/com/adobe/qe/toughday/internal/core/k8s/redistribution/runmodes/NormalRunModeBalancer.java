@@ -1,6 +1,7 @@
 package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.engine.AsyncEngineWorker;
 import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
@@ -12,6 +13,22 @@ import java.util.concurrent.TimeUnit;
 
 public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
 
+    private void concurrencySanityChecks(Normal runMode, long newConcurrency) {
+        // check that we have the exact number of active test workers
+        if (runMode.getRunContext().getTestWorkers().size() != newConcurrency) {
+            System.out.println("[rebalance processor - concurrency sanity checks] TestWorkers size is "
+                    + runMode.getRunContext().getTestWorkers().size() + " but" + " new value for concurrency is " + newConcurrency);
+            throw new IllegalStateException("[rebalance processor - concurrency sanity checks] TestWorkers size is "
+                    + runMode.getRunContext().getTestWorkers().size() + " but" + " new value for concurrency is " + newConcurrency);
+        }
+
+        // check that all test workers are active
+        if (runMode.getRunContext().getTestWorkers().stream().anyMatch(AsyncEngineWorker::isFinished)) {
+            throw new IllegalStateException("[rebalance processor - concurrency sanity checks] " +
+                    "There are finished test workers in the list of active workers.");
+        }
+    }
+
     private void processPropertyChange(String property, String newValue, Normal runMode) {
         if (property.equals("concurrency") && !runMode.isVariableConcurrency()) {
             System.out.println("[rebalance processor] Processing concurrency change");
@@ -19,14 +36,19 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
             long difference = runMode.getConcurrency() - newConcurrency;
             List<AsyncTestWorker> workerList = new ArrayList<>(runMode.getRunContext().getTestWorkers());
 
+            System.out.println("[rebalance processor] currenct concurrency: " + runMode.getConcurrency() + "; new concurrency +" +
+                    newConcurrency);
+
             System.out.println("[rebalance processsor] concurrency difference is " + difference);
 
             if (difference > 0) {
                 // kill some test workers
                 for (int i = 0; i < difference; i++) {
-                    workerList.get(i).finishExecution();
-                    workerList.remove(i);
-                    System.out.println("[rebalance processor] Finished test worker " + workerList.get(i).getWorkerThread().getId());
+                    workerList.get(0).finishExecution();
+                    System.out.println("[rebalance processor] Finished test worker " + workerList.get(0).getWorkerThread().getId());
+
+                    runMode.getRunContext().getTestWorkers().remove(workerList.get(0));
+                    workerList.remove(0);
                 }
             } else {
                 // create a few more test workers
@@ -35,6 +57,9 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
                     runMode.createAndExecuteWorker(runMode.getEngine(), runMode.getEngine().getCurrentPhase().getTestSuite());
                 }
             }
+
+            System.out.println("[rebalance processor] Test workers size: " + runMode.getRunContext().getTestWorkers().size());
+            concurrencySanityChecks(runMode, newConcurrency);
 
             System.out.println("[rebalance processor] Successfully updated the state to respect the new value of concurrency.");
         }

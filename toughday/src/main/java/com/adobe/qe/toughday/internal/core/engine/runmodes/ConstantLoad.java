@@ -20,6 +20,7 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.ConstantLoadRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
 import org.apache.commons.lang3.mutable.MutableLong;
@@ -31,6 +32,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Description(desc = "Generates a constant load of test executions, regardless of their execution time.")
@@ -62,6 +64,8 @@ public class ConstantLoad implements RunMode, Cloneable {
     private TestCache testCache;
     private Phase phase;
     private RunModeSplitter<ConstantLoad> runModeSplitter = new ConstantLoadRunModeSplitter();
+    private ScheduledFuture<?> scheduledFuture = null;
+    private final ConstantLoadRunModeBalancer runModeBalancer = null;
 
     private Boolean measurable = true;
 

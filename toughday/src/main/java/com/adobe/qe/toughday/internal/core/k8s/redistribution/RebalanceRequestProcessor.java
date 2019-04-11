@@ -28,10 +28,15 @@ public class RebalanceRequestProcessor {
                 .stream()
                 .filter(test -> counts.containsKey(test.getName()))
                 .forEach(test -> {
-                    // reset number of tests executed so far
-                    phase.getCounts().put(test, new AtomicLong(0));
-                    // update number of executions left for this test
-                    test.setCount(String.valueOf(counts.get(test.getName())));
+                    // remove tests for which the count property was achieved
+                    if (counts.get(test.getName()) == 0) {
+                        phase.getCounts().remove(test);
+                    } else {
+                        // reset number of tests executed so far
+                        phase.getCounts().put(test, new AtomicLong(0));
+                        // update number of executions left for this test
+                        test.setCount(String.valueOf(counts.get(test.getName())));
+                    }
 
                     System.out.println("[rebalance processor] Setting count for test " + test.getName() + " to value: " + counts.get(test.getName()));
                 });

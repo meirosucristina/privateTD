@@ -18,6 +18,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
 
@@ -41,13 +43,14 @@ public class Driver {
     private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService rebalanceScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService startMonitoringAgents = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
-    private Map<String, String> recentlyAddedAgents = new HashMap<>();
 
-    private final TaskBalancer taskBalancer = new TaskBalancer();
+    private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
     private final HttpUtils httpUtils = new HttpUtils();
     private DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
     private Configuration configuration;
+    private List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks = new ArrayList<>();
 
     public Driver() {
         asyncClient.start();
@@ -126,19 +129,34 @@ public class Driver {
             String agentName = AGENT_PREFIX_NAME + id.getAndIncrement();
 
             if (this.distributedPhaseMonitor.isPhaseExecuting()) {
-                this.recentlyAddedAgents.put(agentName, agentIp);
+                taskBalancer.addNewAgent(agentName, agentIp);
 
-                Map<String, Future<HttpResponse>> newRunningTasks =
+                if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
+                    // work redistribution will be delayed until the current rebalance process is finished
+                    System.out.println("[driver] Agent " + agentIp +" (" + agentName + ") will be taken into consideration" +
+                            " after delayed redistribution of work." );
+                    this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
+                    this.taskBalancer.addNewAgent(agentName, agentIp);
+
+                } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
+                    this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
+                    System.out.println("[driver] Scheduling rebalance process to start in 3 seconds...");
+                    // schedule rebalance process
+                    ScheduledFuture<Map<String, Future<HttpResponse>>> scheduledFuture =
+                            this.rebalanceScheduler.schedule(() -> taskBalancer.rebalanceWork(
+                                    distributedPhaseMonitor.getPhase(),
+                                    distributedPhaseMonitor.getExecutionsPerTest(),
+                                    agents, configuration), GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+                    newRunningTasks.add(scheduledFuture);
+                }
+
+                /*Map<String, Future<HttpResponse>> newRunningTasks =
                         taskBalancer.rebalanceWork(this.distributedPhaseMonitor.getPhase(),
                                 this.distributedPhaseMonitor.getExecutionsPerTest(),
-                                agents, this.recentlyAddedAgents, this.configuration);
+                                agents, this.configuration);
 
                 // start monitoring the new tasks
-                newRunningTasks.forEach(distributedPhaseMonitor::registerRunningTask);
-
-                // mark recently added agents as active task executors
-                agents.putAll(recentlyAddedAgents);
-                recentlyAddedAgents.clear();
+                newRunningTasks.forEach(distributedPhaseMonitor::registerRunningTask); */
 
                 System.out.println("Registered agent with ip " + agentIp);
                 return "";
@@ -154,6 +172,25 @@ public class Driver {
         // we should periodically send heartbeat messages from driver to all the agents
         heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor, this.configuration),
                 0, heartbeatInterval, TimeUnit.SECONDS);
+
+        /* we should periodically check if recently added agents started executing task and
+        we should monitor them.
+         */
+        this.startMonitoringAgents.scheduleAtFixedRate(() -> {
+            System.out.println("[driver - monitoring agents] Started...");
+            List<ScheduledFuture<Map<String, Future<HttpResponse>>>> finishedFutures = this.newRunningTasks.stream()
+                    .filter(Future::isDone)
+                    .collect(Collectors.toList());
+            finishedFutures.forEach(future -> {
+                System.out.println("[driver - monitoring agents] monitoring new running tasks has started...");
+                try {
+                    future.get().forEach(this.distributedPhaseMonitor::registerRunningTask);
+                    this.newRunningTasks.removeAll(finishedFutures);
+                } catch (InterruptedException | ExecutionException e) {
+                    e.printStackTrace();
+                }
+            });
+        }, 0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
 
         /* wait for requests */
         while (true) { }

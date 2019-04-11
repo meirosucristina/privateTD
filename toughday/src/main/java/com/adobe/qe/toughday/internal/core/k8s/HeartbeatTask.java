@@ -1,7 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.internal.core.config.Configuration;
-import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.TaskBalancer;
 import com.google.gson.Gson;
@@ -17,7 +16,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,7 +30,7 @@ public class HeartbeatTask implements Runnable {
     private DistributedPhaseMonitor phaseMonitor;
     private Configuration configuration;
 
-    private final TaskBalancer taskBalancer = new TaskBalancer();
+    private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
 
     public HeartbeatTask(ConcurrentHashMap<String, String> agents, DistributedPhaseMonitor phaseMonitor,
                          Configuration configuration) {
@@ -54,6 +52,7 @@ public class HeartbeatTask implements Runnable {
                 try {
                     // gson treats numbers as double values by default
                     Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
+                    System.out.println("[Heartbeat task] Received from agent " + agentName + "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
                     // recently added agents might not execute tests yet
                     if (doubleAgentCounts.isEmpty()) {
                         return responseCode;
@@ -112,10 +111,21 @@ public class HeartbeatTask implements Runnable {
                         continue;
                     }
 
+                    if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
+                        /* delay redistribution of tasks. Redistribution will be triggered after the current one is
+                         * is finished
+                         **/
+
+                        this.taskBalancer.addInactiveAgent(agentId);
+                        continue;
+                    } else {
+                        // TODO: schedule rabalance right now
+                    }
+
                     // redistribute the work between the active agents
-                    this.taskBalancer.rebalanceWork(this.phaseMonitor.getPhase(), this.phaseMonitor.getExecutionsPerTest(),
-                            this.agents, new HashMap<>(), this.configuration);
-                    this.phaseMonitor.removeAgentFromExecutionsMap(agentId);
+                    /*this.taskBalancer.rebalanceWork(this.phaseMonitor.getPhase(), this.phaseMonitor.getExecutionsPerTest(),
+                            this.agents, this.configuration);
+                    this.phaseMonitor.removeAgentFromExecutionsMap(agentId);*/
 
                     // TODO: change this when the new pod is able to resume the task
                     System.out.println("Removing agent " + agentId + " from map of executions. ");
