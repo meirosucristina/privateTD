@@ -43,8 +43,6 @@ public class ConstantLoad implements RunMode, Cloneable {
     private AtomicBoolean loggedWarning = new AtomicBoolean(false);
 
     private ExecutorService executorService = Executors.newCachedThreadPool();
-    private ScheduledExecutorService rampUpScheduler = Executors.newScheduledThreadPool(1);
-    private ScheduledExecutorService rampDownScheduler = Executors.newScheduledThreadPool(1);
     private ScheduledExecutorService repeatableTask = Executors.newScheduledThreadPool(1);
 
     private Collection<AsyncTestWorker> testWorkers = Collections.synchronizedSet(new HashSet<>());
@@ -135,13 +133,7 @@ public class ConstantLoad implements RunMode, Cloneable {
         /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
          * rescheduled when rebalancing the work between the agents.
          */
-        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) rampUpScheduler;
-        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
-
-        scheduledPoolExecutor = (ScheduledThreadPoolExecutor) rampDownScheduler;
-        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
-
-        scheduledPoolExecutor = (ScheduledThreadPoolExecutor) repeatableTask;
+        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) repeatableTask;
         scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
 
     }
