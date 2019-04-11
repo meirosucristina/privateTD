@@ -356,68 +356,6 @@ public class Normal implements RunMode, Cloneable {
         return this.normalRunModeBalancer;
     }
 
-    /*private void processPropertyChange(String property, String newValue) {
-        if (property.equals("concurrency") && !isVariableConcurrency()) {
-            System.out.println("[rebalance processor] Processing concurrency change");
-            long newConcurrency = Long.parseLong(newValue);
-            long difference = this.concurrency - newConcurrency;
-
-            System.out.println("[rebalance processsor] concurrency difference is " + difference);
-
-            if (difference > 0) {
-                // kill some test workers
-                for (int i = 0; i < difference; i++) {
-                    this.testWorkers.get(i).finishExecution();
-                    this.testWorkers.remove(i);
-                    System.out.println("[rebalance processor] Finished test worker " + this.testWorkers.get(i).getWorkerThread().getId());
-                }
-            } else {
-                // create a few more test workers
-                for (int i = 0; i < Math.abs(difference); i++) {
-                    System.out.println("[rebalance processor] Creating a new test worker...");
-                    createAndExecuteWorker(engine, engine.getCurrentPhase().getTestSuite());
-                }
-            }
-
-            System.out.println("[rebalance processor] Successfully updated the state to respect the new value of concurrency.");
-        }
-    }
-
-    @Override
-    public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
-        if (this.isVariableConcurrency()) {
-            *//* We must cancel the scheduled task and reschedule it with the new values for 'period' and
-             * initial delay.
-             *//*
-            boolean cancelled = this.scheduledFuture.cancel(true);
-            if (!cancelled) {
-                System.out.println("[rebalance processor - run mode] task could not be cancelled.");
-                return;
-            }
-
-            System.out.println("[rebalance processor - run mode] successfully cancelled task.");
-        }
-
-        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
-        runModeProperties.forEach(this::processPropertyChange);
-
-        // TODO: should we wait for all the agents to confirm the interruption on the scheduled task?
-        // reschedule the task
-        if (this.isVariableConcurrency()) {
-            if (start < end) {
-                this.addWorkerScheduler.scheduleAtFixedRate(getRampUpRunnable(engine, engine.getCurrentPhase().getTestSuite()),
-                        this.initialDelay, this.interval, TimeUnit.MILLISECONDS);
-                System.out.println("[rebalance processor - run mode] successfully rescheduled ramp up with interval " +
-                        this.interval + " and initial delay " + this.initialDelay);
-            } else if (start > end) {
-                this.removeWorkerScheduler.scheduleAtFixedRate(getRampDownRunnable(), this.initialDelay, this.interval,
-                        TimeUnit.MILLISECONDS);
-                System.out.println("[rebalance processor - run mode] successfully rescheduled ramp down with interval " +
-                        this.interval + " and initial delay " + this.initialDelay);
-            }
-        }
-    }*/
-
     @Override
     public RunModeSplitter<Normal> getRunModeSplitter() {
         return this.runModeSplitter;
