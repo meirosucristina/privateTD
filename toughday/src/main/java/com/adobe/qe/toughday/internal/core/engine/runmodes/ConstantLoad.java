@@ -23,7 +23,6 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.ConstantLoadRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
-import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,6 +58,11 @@ public class ConstantLoad implements RunMode, Cloneable {
     private int oneAgentRate = 0;
 
     private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
+
+    public ScheduledExecutorService getRampingScheduler() {
+        return rampingScheduler;
+    }
+
     private ScheduledExecutorService rampingScheduler = Executors.newScheduledThreadPool(1);
 
     private TestCache testCache;
@@ -141,6 +145,14 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     public int getOneAgentRate() {
         return this.oneAgentRate;
+    }
+
+    public ScheduledFuture<?> getScheduledFuture() {
+        return this.scheduledFuture;
+    }
+
+    public void removeRunMap(int index) {
+        this.runMaps.remove(index);
     }
 
     @Override
@@ -332,6 +344,8 @@ public class ConstantLoad implements RunMode, Cloneable {
             currentTest = null;
             exited = true;
             testCache.add(test);
+            System.out.println("Test cache size is " +
+                    testCache.cache.get(test.getId()).size());
             Thread.interrupted();
             mutex.unlock();
         }
@@ -342,11 +356,32 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
+    public Runnable getRampingRunnable() {
+        return this.scheduler.getRampingRunnable();
+    }
+
 
     private class AsyncTestWorkerScheduler extends AsyncEngineWorker {
         private Engine engine;
+        private Runnable rampingRunnable;
+
         public AsyncTestWorkerScheduler(Engine engine) {
             this.engine = engine;
+
+            this.rampingRunnable = () -> {
+                if (!isFinished()) {
+                    rampUp();
+
+                    rampDown();
+                } else {
+                    // gracefully shut down scheduler
+                    rampingScheduler.shutdownNow();
+                }
+            };
+        }
+
+        public Runnable getRampingRunnable() {
+            return this.rampingRunnable;
         }
 
         private void configureRateAndInterval() {
@@ -403,17 +438,8 @@ public class ConstantLoad implements RunMode, Cloneable {
                 initialDelay = interval;
             }
 
-            rampingScheduler.scheduleAtFixedRate(() -> {
-                if (!isFinished()) {
-                    rampUp();
-
-                    rampDown();
-                } else {
-                    // gracefully shut down scheduler
-                    rampingScheduler.shutdownNow();
-                }
-
-            }, initialDelay, interval, TimeUnit.MILLISECONDS);
+            scheduledFuture = rampingScheduler.scheduleAtFixedRate(rampingRunnable,
+                    initialDelay, interval, TimeUnit.MILLISECONDS);
 
         }
 
@@ -474,6 +500,7 @@ public class ConstantLoad implements RunMode, Cloneable {
                 nextRound.add(localNextTest);
             }
 
+            System.out.println("Current load is " + currentLoad);
             for (int i = 0; i < currentLoad && !isFinished(); i++) {
                 AsyncTestWorkerImpl worker = new AsyncTestWorkerImpl(nextRound.get(i), runMaps.get(i));
                 try {
