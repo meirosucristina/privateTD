@@ -29,10 +29,7 @@ import org.slf4j.LoggerFactory;
 
 
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Description(desc = "Generates a constant load of test executions, regardless of their execution time.")
@@ -60,6 +57,9 @@ public class ConstantLoad implements RunMode, Cloneable {
     /* field used for checking the finish condition when running TD distributed on K8S with
     the rate smaller than number of agents in the cluster. */
     private int oneAgentRate = 0;
+
+    private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService rampingScheduler = Executors.newScheduledThreadPool(1);
 
     private TestCache testCache;
     private Phase phase;
@@ -129,6 +129,14 @@ public class ConstantLoad implements RunMode, Cloneable {
             checkNotNegative(Long.parseLong(end), "end");
         }
         this.end = Integer.valueOf(end);
+    }
+
+    public ConstantLoad() {
+        /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
+         * rescheduled when rebalancing the work between the agents.
+         */
+        ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) runRoundScheduler;
+        scheduledPoolExecutor.setRemoveOnCancelPolicy(true);
     }
 
     public int getOneAgentRate() {
@@ -341,85 +349,82 @@ public class ConstantLoad implements RunMode, Cloneable {
             this.engine = engine;
         }
 
-        private void configureRateAndInterval(MutableLong secondsLeft) {
+        private void configureRateAndInterval() {
             //the difference from the beginning load to the end one
             int loadDifference = Math.abs(end - start);
 
             // suppose load will increase by second
-            secondsLeft.setValue(1);
-            rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
+            long newInterval = 1;
+            rate = (int)Math.floor(1.0 * newInterval* loadDifference
                     / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
 
             // if the rate becomes too small, increase the interval at which the load is increased
             while (rate < 1) {
-                secondsLeft.increment();
-                rate = (int)Math.floor(1.0 * secondsLeft.getValue() * loadDifference
+                newInterval += 1;
+                rate = (int)Math.floor(1.0 * newInterval * loadDifference
                         / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
             }
 
-            interval = secondsLeft.getValue();
-        }
-
-        private void initialDelay() {
-            long timeToSleep = initialDelay;
-
-            while (timeToSleep > 0) {
-                long start = System.currentTimeMillis();
-                try {
-                    Thread.sleep(timeToSleep);
-                    break;
-                } catch (InterruptedException e) {
-                    timeToSleep = timeToSleep - (System.currentTimeMillis() - start);
-                    LOG.warn("Thread was interrupted during the initial delay;");
-                }
-            }
+            // TODO: ask andrei why interval is in seconds for constant load and milliseconds for normal run mode
+            interval = newInterval * 1000; // set interval in milliseconds
         }
 
         @Override
         public void run() {
-            if (initialDelay != 0)
-                initialDelay();
+            currentLoad = load;
 
-            try {
-                currentLoad = load;
-                MutableLong secondsLeft = new MutableLong(interval);
-
-                // if the rate was not specified and start and end were
-                if (isVariableLoad()) {
-                    if (rate == -1) {
-                        configureRateAndInterval(secondsLeft);
-                    }
-
-                    currentLoad = start;
+            // if the rate was not specified and start and end were
+            if (isVariableLoad()) {
+                if (rate == -1) {
+                    configureRateAndInterval();
                 }
 
-                while (!isFinished()) {
-                    // run the current run with the current load
-                    runRound();
-
-                    secondsLeft.decrement();
-
-                    // ramp up the load if 'start' was specified
-                    rampUp(secondsLeft);
-
-                    // ramp down the load if 'end' was specified
-                    rampDown(secondsLeft);
-                }
-            } catch (InterruptedException e) {
-                finishExecution();
-                LOG.warn("Constant load scheduler thread was interrupted.");
+                currentLoad = start;
             }
+
+            runRoundScheduler.scheduleAtFixedRate(() -> {
+                if (!isFinished()) {
+                    try {
+                        // run the current run with the current load
+                        runRound();
+                    } catch (InterruptedException e) {
+                        finishExecution();
+                        LOG.warn("Constant load scheduler thread was interrupted.");
+
+                        // gracefully shut down scheduler
+                        runRoundScheduler.shutdownNow();
+                    }
+                }
+
+            }, 0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
+
+            if (initialDelay == 0) {
+                // set initial delay to value of interval
+                initialDelay = interval;
+            }
+
+            rampingScheduler.scheduleAtFixedRate(() -> {
+                if (!isFinished()) {
+                    rampUp();
+
+                    rampDown();
+                } else {
+                    // gracefully shut down scheduler
+                    rampingScheduler.shutdownNow();
+                }
+
+            }, initialDelay, interval, TimeUnit.MILLISECONDS);
+
         }
 
-        private void rampUp(MutableLong secondsLeft) {
+        private void rampUp() {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate >= end + oneAgentRate))) {
                 finishExecution();
             }
 
             // if 'interval' has passed and the current load is still below 'end',
             // increase the current load
-            if (secondsLeft.getValue() == 0 && end != -1 && currentLoad < end) {
-                secondsLeft.setValue(interval);
+            if (end != -1 && currentLoad < end) {
 
                 currentLoad += rate;
                 LOG.debug("Current load: " + currentLoad);
@@ -430,15 +435,14 @@ public class ConstantLoad implements RunMode, Cloneable {
             }
         }
 
-        private void rampDown(MutableLong secondsLeft) {
+        private void rampDown() {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
                 finishExecution();
             }
 
             // if 'interval' has passed and the currentLoad is still above 'end',
             // decrease the current load
-            if (secondsLeft.getValue() == 0 && end != -1 && currentLoad > end) {
-                secondsLeft.setValue(interval);
+            if (end != -1 && currentLoad > end) {
 
                 currentLoad -= rate;
                 LOG.debug("Current load: " + currentLoad);
@@ -484,9 +488,6 @@ public class ConstantLoad implements RunMode, Cloneable {
                     testWorkers.add(worker);
                 }
             }
-
-            //TODO use this
-            Thread.sleep(1000);
         }
     }
 
