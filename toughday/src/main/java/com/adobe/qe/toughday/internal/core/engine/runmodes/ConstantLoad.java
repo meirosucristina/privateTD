@@ -404,11 +404,16 @@ public class ConstantLoad implements RunMode, Cloneable {
                         LOG.warn("Constant load scheduler thread was interrupted.");
 
                         // gracefully shut down scheduler
-                        runRoundScheduler.shutdown();
+                        runRoundScheduler.shutdownNow();
                     }
                 }
 
             }, 0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
+
+            if (initialDelay == 0) {
+                // set initial delay to value of interval
+                initialDelay = interval;
+            }
 
             rampingScheduler.scheduleAtFixedRate(() -> {
                 if (!isFinished()) {
@@ -417,7 +422,7 @@ public class ConstantLoad implements RunMode, Cloneable {
                     rampDown();
                 } else {
                     // gracefully shut down scheduler
-                    rampingScheduler.shutdown();
+                    rampingScheduler.shutdownNow();
                 }
 
             }, initialDelay, interval, TimeUnit.MILLISECONDS);
