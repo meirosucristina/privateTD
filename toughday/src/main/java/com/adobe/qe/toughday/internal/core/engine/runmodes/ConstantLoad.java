@@ -341,7 +341,8 @@ public class ConstantLoad implements RunMode, Cloneable {
                         / GlobalArgs.parseDurationToSeconds(phase.getDuration()));
             }
 
-            interval = newInterval;
+            // TODO: ask andrei why interval is in seconds for constant load and milliseconds for normal run mode
+            interval = newInterval * 1000; // set interval in milliseconds
         }
 
 
