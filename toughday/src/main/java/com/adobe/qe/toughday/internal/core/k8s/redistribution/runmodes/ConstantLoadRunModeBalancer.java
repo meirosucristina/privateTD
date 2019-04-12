@@ -12,16 +12,23 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
 
     private void processPropertyChange(String property, String newValue, ConstantLoad runMode) {
         if (property.equals("load") && !runMode.isVariableLoad()) {
-            System.out.println("[rebalance processor] Processing load change");
+            System.out.println("[constant load run mode balancer] Processing load change");
 
             long newLoad = Long.parseLong(newValue);
             long difference = runMode.getLoad() - newLoad;
 
             if  (difference > 0 ) {
                 // remove part of the local run maps used by the workers
-                for (int i = 0; i < difference; i++) {
-                    runMode.removeRunMap(0);
-                }
+                runMode.removeRunMaps(difference);
+                System.out.println("[constant load run mode balancer] Successfully deleted " + difference +
+                        " run maps.");
+
+                // TODO: Should we remove tests from cache before changing the count property?
+            } else {
+                // add some run maps to match the new load
+                runMode.addRunMaps(Math.abs(difference));
+                System.out.println("[constant load run mode balancer] Successfully deleted " + difference +
+                        " run maps.");
             }
         }
     }
@@ -30,7 +37,6 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
     public void before(RebalanceInstructions rebalanceInstructions, ConstantLoad runMode) {
         System.out.println("[constant load run mode balancer] - before....");
 
-        // TODO: remove tests from cache before changing the count property
 
         if (runMode.isVariableLoad()) {
             /* We must cancel the scheduled task and reschedule it with the new values for 'period' and

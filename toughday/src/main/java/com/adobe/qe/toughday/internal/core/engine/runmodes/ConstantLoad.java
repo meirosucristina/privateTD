@@ -69,7 +69,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     private Phase phase;
     private RunModeSplitter<ConstantLoad> runModeSplitter = new ConstantLoadRunModeSplitter();
     private ScheduledFuture<?> scheduledFuture = null;
-    private final ConstantLoadRunModeBalancer runModeBalancer = null;
+    private final ConstantLoadRunModeBalancer runModeBalancer = new ConstantLoadRunModeBalancer();
 
     private Boolean measurable = true;
 
@@ -151,10 +151,6 @@ public class ConstantLoad implements RunMode, Cloneable {
         return this.scheduledFuture;
     }
 
-    public void removeRunMap(int index) {
-        this.runMaps.remove(index);
-    }
-
     @Override
     public Object clone() throws CloneNotSupportedException {
         return super.clone();
@@ -198,6 +194,22 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
+    public void addRunMaps(long nr) {
+        for (long i = 0; i < nr; i++) {
+            synchronized (runMaps) {
+                runMaps.add(phase.getPublishMode().getRunMap().newInstance());
+            }
+        }
+    }
+
+    public void removeRunMaps(long nr) {
+        for (long i = 0; i < nr; i++) {
+            synchronized (runMaps) {
+                this.runMaps.remove(0);
+            }
+        }
+    }
+
     @Override
     public void runTests(Engine engine) {
         checkInvalidArgs();
@@ -212,11 +224,7 @@ public class ConstantLoad implements RunMode, Cloneable {
             load = Math.max(start, end);
         }
 
-        for(int i = 0; i < load; i++) {
-            synchronized (runMaps) {
-                runMaps.add(phase.getPublishMode().getRunMap().newInstance());
-            }
-        }
+        addRunMaps(load);
 
         this.scheduler = new AsyncTestWorkerScheduler(engine);
         executorService.execute(scheduler);
@@ -236,39 +244,15 @@ public class ConstantLoad implements RunMode, Cloneable {
 
             @Override
             public boolean isRunFinished() {
-                return scheduler.isFinished();
+                return scheduler != null && scheduler.isFinished();
             }
         };
     }
 
     @Override
-    public <T extends RunMode> RunModeBalancer<T> getRunModeBalancer() {
-        return null;
+    public RunModeBalancer<ConstantLoad> getRunModeBalancer() {
+        return this.runModeBalancer;
     }
-
-    private void processPropertyChange(String property, String newValue) {
-        if (property.equals("load")) {
-            System.out.println("[rebalance processor] Processing load change");
-            long newLoad = Long.valueOf(newValue);
-            long diff = this.currentLoad - newLoad;
-
-            if (diff > 0) {
-                // reduce number of workers to be created
-                this.currentLoad -= diff;
-            } else {
-                // increase number of workers to be created
-                this.currentLoad += diff;
-            }
-
-        }
-    }
-
-    /*@Override
-    public void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions) {
-        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
-
-        runModeProperties.forEach(this::processPropertyChange);
-    }*/
 
     public void setInitialDelay(long initialDelay) {
         this.initialDelay = initialDelay;
@@ -344,8 +328,8 @@ public class ConstantLoad implements RunMode, Cloneable {
             currentTest = null;
             exited = true;
             testCache.add(test);
-            System.out.println("Test cache size is " +
-                    testCache.cache.get(test.getId()).size());
+            /*System.out.println("Test cache size is " +
+                    testCache.cache.get(test.getId()).size());*/
             Thread.interrupted();
             mutex.unlock();
         }
@@ -369,11 +353,14 @@ public class ConstantLoad implements RunMode, Cloneable {
             this.engine = engine;
 
             this.rampingRunnable = () -> {
+                System.out.println("Ramping load....");
                 if (!isFinished()) {
                     rampUp();
 
                     rampDown();
                 } else {
+                    System.out.println("FINISHED...");
+
                     // gracefully shut down scheduler
                     rampingScheduler.shutdownNow();
                 }
@@ -424,6 +411,8 @@ public class ConstantLoad implements RunMode, Cloneable {
                         runRound();
                     } catch (InterruptedException e) {
                         finishExecution();
+                        System.out.println("EXECUTION FINISHED: Constant load scheduler thread" +
+                                "was interrupted");
                         LOG.warn("Constant load scheduler thread was interrupted.");
 
                         // gracefully shut down scheduler
@@ -453,6 +442,7 @@ public class ConstantLoad implements RunMode, Cloneable {
             if (end != -1 && currentLoad < end) {
 
                 currentLoad += rate;
+                System.out.println("Current load: " + currentLoad);
                 LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad > end) {
@@ -463,6 +453,8 @@ public class ConstantLoad implements RunMode, Cloneable {
 
         private void rampDown() {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
+                System.out.println("Execution finished because of  condition: " +
+                        "currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate");
                 finishExecution();
             }
 
@@ -487,6 +479,8 @@ public class ConstantLoad implements RunMode, Cloneable {
                         engine.getEngineSync());
                 if (null == nextTest) {
                     LOG.info("Constant load scheduler thread finished, because there were no more tests to execute.");
+                    System.out.println("EXECUTION FINISHED: Constant load scheduler thread finished, because there " +
+                            "were no more tests to execute.");
                     this.finishExecution();
                     return;
                 }
