@@ -23,6 +23,7 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.ConstantLoadRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
+import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,19 +53,13 @@ public class ConstantLoad implements RunMode, Cloneable {
     private long interval = DEFAULT_INTERVAL;
     private int rate;
     private int currentLoad;
+    //private int currentLoad;
     private long initialDelay = 0;
     /* field used for checking the finish condition when running TD distributed on K8S with
     the rate smaller than number of agents in the cluster. */
     private int oneAgentRate = 0;
 
     private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
-
-    public ScheduledExecutorService getRampingScheduler() {
-        return rampingScheduler;
-    }
-
-    private ScheduledExecutorService rampingScheduler = Executors.newScheduledThreadPool(1);
-
     private TestCache testCache;
     private Phase phase;
     private RunModeSplitter<ConstantLoad> runModeSplitter = new ConstantLoadRunModeSplitter();
@@ -83,7 +78,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     @ConfigArgGet(redistribute = true)
     public int getLoad() { return this.load; }
 
-    @ConfigArgGet(redistribute = true)
+    @ConfigArgGet()
     public int getStart() {
         return start;
     }
@@ -145,10 +140,6 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     public int getOneAgentRate() {
         return this.oneAgentRate;
-    }
-
-    public ScheduledFuture<?> getScheduledFuture() {
-        return this.scheduledFuture;
     }
 
     @Override
@@ -300,6 +291,10 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     }
 
+    private Runnable getRunnableToSchedule() {
+        return this.scheduler.getRunnableToSchedule(new MutableLong((initialDelay + interval) / 1000));
+    }
+
     private class AsyncTestWorkerImpl extends AsyncTestWorker {
         private AbstractTest test;
         private RunMap runMap;
@@ -328,8 +323,6 @@ public class ConstantLoad implements RunMode, Cloneable {
             currentTest = null;
             exited = true;
             testCache.add(test);
-            /*System.out.println("Test cache size is " +
-                    testCache.cache.get(test.getId()).size());*/
             Thread.interrupted();
             mutex.unlock();
         }
@@ -340,35 +333,21 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
-    public Runnable getRampingRunnable() {
-        return this.scheduler.getRampingRunnable();
+    public boolean cancelPeriodicTask() {
+        return this.scheduledFuture.cancel(true);
+    }
+
+    public void schedulePeriodicTask() {
+        this.runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(), 0,
+                GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
     }
 
 
     private class AsyncTestWorkerScheduler extends AsyncEngineWorker {
         private Engine engine;
-        private Runnable rampingRunnable;
 
         public AsyncTestWorkerScheduler(Engine engine) {
             this.engine = engine;
-
-            this.rampingRunnable = () -> {
-                System.out.println("Ramping load....");
-                if (!isFinished()) {
-                    rampUp();
-
-                    rampDown();
-                } else {
-                    System.out.println("FINISHED...");
-
-                    // gracefully shut down scheduler
-                    rampingScheduler.shutdownNow();
-                }
-            };
-        }
-
-        public Runnable getRampingRunnable() {
-            return this.rampingRunnable;
         }
 
         private void configureRateAndInterval() {
@@ -391,6 +370,29 @@ public class ConstantLoad implements RunMode, Cloneable {
             interval = newInterval * 1000; // set interval in milliseconds
         }
 
+        public Runnable getRunnableToSchedule(MutableLong secondsLeft) {
+            return () -> {
+                if (!isFinished()) {
+                    try {
+                        // run the current run with the current load
+                        runRound();
+                        secondsLeft.decrement();
+
+                        rampUp(secondsLeft);
+
+                        rampDown(secondsLeft);
+
+                    } catch (InterruptedException e) {
+                        finishExecution();
+                        LOG.warn("Constant load scheduler thread was interrupted.");
+
+                        // gracefully shut down scheduler
+                        runRoundScheduler.shutdownNow();
+                    }
+                }
+            };
+        }
+
         @Override
         public void run() {
             currentLoad = load;
@@ -404,63 +406,55 @@ public class ConstantLoad implements RunMode, Cloneable {
                 currentLoad = start;
             }
 
-            runRoundScheduler.scheduleAtFixedRate(() -> {
-                if (!isFinished()) {
-                    try {
-                        // run the current run with the current load
-                        runRound();
-                    } catch (InterruptedException e) {
-                        finishExecution();
-                        System.out.println("EXECUTION FINISHED: Constant load scheduler thread" +
-                                "was interrupted");
-                        LOG.warn("Constant load scheduler thread was interrupted.");
 
-                        // gracefully shut down scheduler
-                        runRoundScheduler.shutdownNow();
-                    }
-                }
+            MutableLong secondsLeft = new MutableLong((interval +  initialDelay) / 1000);
+            LOG.info("Seconds left is " + secondsLeft.getValue() + "s");
 
-            }, 0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
-
-            if (initialDelay == 0) {
-                // set initial delay to value of interval
-                initialDelay = interval;
-            }
-
-            scheduledFuture = rampingScheduler.scheduleAtFixedRate(rampingRunnable,
-                    initialDelay, interval, TimeUnit.MILLISECONDS);
+            scheduledFuture = runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(secondsLeft),
+                    0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
 
         }
 
-        private void rampUp() {
+        private void rampUp(MutableLong secondsLeft) {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate >= end + oneAgentRate))) {
+                LOG.info("[ramp up] Execution finished...");
                 finishExecution();
             }
 
             // if 'interval' has passed and the current load is still below 'end',
             // increase the current load
-            if (end != -1 && currentLoad < end) {
+            if (secondsLeft.getValue() == 0 && end != -1 && currentLoad < end) {
 
+                LOG.info("Ramping up...");
+                LOG.info("[ramping up] Current load is " + currentLoad);
                 currentLoad += rate;
-                System.out.println("Current load: " + currentLoad);
                 LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad > end) {
                     currentLoad = end;
                 }
+
+                LOG.info("[ramping up] New load is " + currentLoad);
+                secondsLeft.setValue(interval / 1000);
             }
         }
 
-        private void rampDown() {
+        private void rampDown(MutableLong secondsLeft) {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
-                System.out.println("Execution finished because of  condition: " +
-                        "currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate");
+                LOG.info("[ramp down] Execution finished...");
+
                 finishExecution();
             }
 
+            LOG.info("[rampDown] end is " + end + " secondsleft is " + secondsLeft.getValue() + " currentLoad is " +
+                    currentLoad);
+
             // if 'interval' has passed and the currentLoad is still above 'end',
             // decrease the current load
-            if (end != -1 && currentLoad > end) {
+            if (secondsLeft.getValue() == 0 && end != -1 && currentLoad > end) {
+                LOG.info("[rampDown] end is " + end);
+                LOG.info("Ramping down...");
+                LOG.info("[ramping up] Current load is " + currentLoad);
 
                 currentLoad -= rate;
                 LOG.debug("Current load: " + currentLoad);
@@ -468,6 +462,8 @@ public class ConstantLoad implements RunMode, Cloneable {
                 if (currentLoad < end) {
                     currentLoad = end;
                 }
+
+                secondsLeft.setValue(interval / 1000);
             }
         }
 
@@ -479,8 +475,6 @@ public class ConstantLoad implements RunMode, Cloneable {
                         engine.getEngineSync());
                 if (null == nextTest) {
                     LOG.info("Constant load scheduler thread finished, because there were no more tests to execute.");
-                    System.out.println("EXECUTION FINISHED: Constant load scheduler thread finished, because there " +
-                            "were no more tests to execute.");
                     this.finishExecution();
                     return;
                 }
@@ -494,7 +488,6 @@ public class ConstantLoad implements RunMode, Cloneable {
                 nextRound.add(localNextTest);
             }
 
-            System.out.println("Current load is " + currentLoad);
             for (int i = 0; i < currentLoad && !isFinished(); i++) {
                 AsyncTestWorkerImpl worker = new AsyncTestWorkerImpl(nextRound.get(i), runMaps.get(i));
                 try {

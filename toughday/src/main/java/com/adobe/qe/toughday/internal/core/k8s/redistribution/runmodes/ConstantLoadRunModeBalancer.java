@@ -1,15 +1,12 @@
 package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
-import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 
 public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<ConstantLoad> {
-
     private void processPropertyChange(String property, String newValue, ConstantLoad runMode) {
         if (property.equals("load") && !runMode.isVariableLoad()) {
             System.out.println("[constant load run mode balancer] Processing load change");
@@ -31,19 +28,20 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
                         " run maps.");
             }
         }
+
+        // TODO: new_end < current load => ramp down to end, wait for all the agents and trigger computation process
     }
 
     @Override
     public void before(RebalanceInstructions rebalanceInstructions, ConstantLoad runMode) {
         System.out.println("[constant load run mode balancer] - before....");
 
-
         if (runMode.isVariableLoad()) {
             /* We must cancel the scheduled task and reschedule it with the new values for 'period' and
              * initial delay.
              */
 
-            boolean cancelled = runMode.getScheduledFuture().cancel(true);
+            boolean cancelled = runMode.cancelPeriodicTask();
             if (!cancelled) {
                 System.out.println("[constant load run mode balancer]  task could not be cancelled.");
                 return;
@@ -61,9 +59,7 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
     public void after(RebalanceInstructions rebalanceInstructions, ConstantLoad runMode) {
         // reschedule the task
         if (runMode.isVariableLoad()) {
-            Runnable rampingRunnable = runMode.getRampingRunnable();
-            runMode.getRampingScheduler().scheduleAtFixedRate(rampingRunnable, runMode.getInitialDelay(),
-                    GlobalArgs.parseDurationToSeconds(runMode.getInterval()), TimeUnit.MILLISECONDS);
+            runMode.schedulePeriodicTask();
 
             System.out.println("[constant load run mode balancer] successfully rescheduled ramping task " +
                     "with interval " + runMode.getInterval() + " and initial delay "

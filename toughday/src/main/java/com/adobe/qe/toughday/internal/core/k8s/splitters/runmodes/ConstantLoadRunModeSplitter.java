@@ -3,6 +3,9 @@ package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 
 public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<ConstantLoad> {
+
+    protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeSplitter.class);
 
     private ConstantLoad setParamsForDistributedRunMode(ConstantLoad runMode, int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,
@@ -65,13 +70,17 @@ public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<Cons
     @Override
     public Map<String, ConstantLoad> distributeRunModeForRebalancingWork(ConstantLoad runMode, List<String> oldAgents,
                                                                          List<String> newAgents) {
+
+        LOG.info("[constant load run mode splitter] Distributing for rebalancing work...");
+
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
 
         Map<String, ConstantLoad> taskRunModes = distributeRunMode(runMode, agents);
 
         // set start property to 'rate' for each new agent
-        newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart(String.valueOf(taskRunModes.get(agentName).getRate())));
+        // newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart(String.valueOf(taskRunModes.get(agentName).getRate())));
+        newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart("0"));
 
         return taskRunModes;
     }

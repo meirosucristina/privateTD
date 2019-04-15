@@ -13,6 +13,7 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
     @Override
     public void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, T runMode) {
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+        System.out.println("[AbstractRunModeBalancer] changing values for properties...");
         Arrays.stream(runMode.getClass().getDeclaredMethods())
                 .filter(method -> runModeProperties.containsKey(Configuration.propertyFromMethod(method.getName())))
                 .filter(method -> method.isAnnotationPresent(ConfigArgSet.class))
@@ -20,13 +21,15 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
                     String property = Configuration.propertyFromMethod(method.getName());
 
                     if (runModeProperties.containsKey(property)) {
-                        System.out.println("[rebalace request] Setting property " + property + " to " + runModeProperties.get(property));
+                        System.out.println("[rebalance request] Setting property " + property + " to " + runModeProperties.get(property));
 
                         try {
                             method.invoke(runMode, runModeProperties.get(property));
                         } catch (IllegalAccessException | InvocationTargetException e) {
                             e.printStackTrace();
                         }
+                    } else {
+                        System.out.println("key " + property + "not found");
                     }
                 });
     }

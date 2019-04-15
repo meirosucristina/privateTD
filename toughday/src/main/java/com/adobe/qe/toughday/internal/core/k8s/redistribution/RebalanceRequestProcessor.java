@@ -45,6 +45,7 @@ public class RebalanceRequestProcessor {
     }
 
     private void processRunModeChanges(RebalanceInstructions rebalanceInstructions, RunMode runMode) {
+        System.out.println("[rebalance request processor] processing run mode changes...");
         runMode.getRunModeBalancer().before(rebalanceInstructions, runMode);
 
         runMode.getRunModeBalancer().processRunModeInstructions(rebalanceInstructions, runMode);
