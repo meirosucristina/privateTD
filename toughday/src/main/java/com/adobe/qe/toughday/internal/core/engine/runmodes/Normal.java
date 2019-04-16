@@ -240,7 +240,11 @@ public class Normal implements RunMode, Cloneable {
         rampDown();
     }
 
-
+    public void finishAndDeleteWorker(AsyncTestWorker worker) {
+        worker.finishExecution();
+        this.getRunContext().getTestWorkers().remove(worker);
+        activeThreads--;
+    }
 
     public void createAndExecuteWorker(Engine engine, TestSuite testSuite) {
         AsyncTestWorkerImpl testWorker = new AsyncTestWorkerImpl(engine, phase, testSuite, phase.getPublishMode().getRunMap().newInstance());
@@ -296,9 +300,7 @@ public class Normal implements RunMode, Cloneable {
                     testWorker.finishExecution();
 
                     // remove the stopped worker
-                    testWorkerIterator.remove();
-                    --toRemove;
-                    --activeThreads;
+                    finishAndDeleteWorker(testWorker);
 
                     // if rate users have been removed
                     if (toRemove == 0) {

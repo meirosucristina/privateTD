@@ -13,11 +13,13 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
 
 
     @Override
-    public Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
-        Map<String, String> runModeProps = super.getRunModePropertiesToRedistribute(type, object);
+    public Map<String, String> getRunModePropertiesToRedistribute(Class type, ConstantLoad runMode) {
+        Map<String, String> runModeProps = super.getRunModePropertiesToRedistribute(type, runMode);
 
-        // add current load
-        runModeProps.put("currentload", String.valueOf(((ConstantLoad)object).getCurrentLoad()));
+        if (runMode.isVariableLoad()) {
+            // add current load
+            runModeProps.put("currentload", String.valueOf(runMode.getCurrentLoad()));
+        }
 
         return runModeProps;
     }
@@ -55,8 +57,6 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
                         " run maps.");
             }
         }
-
-        // TODO: new_end < current load => ramp down to end, wait for all the agents and trigger computation process
     }
 
     @Override

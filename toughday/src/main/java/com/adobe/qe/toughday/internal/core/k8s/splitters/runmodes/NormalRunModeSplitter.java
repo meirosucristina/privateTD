@@ -78,14 +78,36 @@ public class NormalRunModeSplitter implements RunMode.RunModeSplitter<Normal> {
 
         System.out.println("[Normal Run Mode Splitter] New agents is " + newAgents.toString());
         // set start property to 'rate' for each new agent
-        if (runMode.isVariableConcurrency()) {
-            newAgents.forEach(agentName -> {
-                taskRunModes.get(agentName).setStart(String.valueOf(taskRunModes.get(agentName).getRate()));
-                System.out.println("[Normal Run Mode Splitter] Setting start to " + taskRunModes.get(agentName).getRate() + " for agent " + agentName);
-            });
+        if (!runMode.isVariableConcurrency()) {
+            return taskRunModes;
+        }
+
+
+        // compute the expected current concurrency
+        long endTime = System.currentTimeMillis();
+        long diff = endTime - phaseStartTime;
+        int estimatedConcurrency = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
+                * runMode.getRate() + runMode.getStart();
+
+        System.out.println("Phase was executed for " + diff / 1000 + " seconds");
+        System.out.println("Estimated concurrency " + estimatedConcurrency);
+
+        // set start property for new agents
+        newAgents.forEach(agentName -> {
+            taskRunModes.get(agentName).setStart(String.valueOf(estimatedConcurrency / agents.size()));
+            System.out.println("[Normal Run Mode Splitter] Setting start to " + estimatedConcurrency / agents.size() +
+                    " for agent " + agentName);
+        });
+
+        // set desired active threads for old agents
+        taskRunModes.get(oldAgents.get(0)).setConcurrency(String.valueOf(estimatedConcurrency / agents.size() +
+                estimatedConcurrency % agents.size()));
+        for (String oldAgent : oldAgents) {
+            taskRunModes.get(oldAgent).setConcurrency(String.valueOf(estimatedConcurrency / agents.size()));
         }
 
         return taskRunModes;
+
     }
 
 }

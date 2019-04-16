@@ -14,7 +14,7 @@ import java.util.Map;
 public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunModeBalancer<T> {
 
     @Override
-    public Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
+    public Map<String, String> getRunModePropertiesToRedistribute(Class type, T object) {
         final Map<String, String> properties = new HashMap<>();
 
         Arrays.stream(type.getDeclaredMethods())

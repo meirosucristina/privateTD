@@ -6,7 +6,7 @@ import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructi
 import java.util.Map;
 
 public interface RunModeBalancer<T extends RunMode> {
-    Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object);
+    Map<String, String> getRunModePropertiesToRedistribute(Class type, T runMode);
     void before(RebalanceInstructions rebalanceInstructions, T runMode);
     void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, T runMode);
     void after(RebalanceInstructions rebalanceInstructions, T runMode);

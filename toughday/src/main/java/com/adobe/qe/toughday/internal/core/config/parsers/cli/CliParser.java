@@ -237,20 +237,8 @@ public class CliParser implements ConfigurationParser {
         return j - startIndex;
     }
 
-    private boolean checkConfigParamExists(String paramName) {
-        List<Map<String, ConfigArgSet>> configArgs = new LinkedList<>(availableGlobalArgs.values());
-        configArgs.addAll(availableK8sConfigArgs.values());
-
-        return configArgs.stream().anyMatch(map -> map.containsKey(paramName));
-
-    }
-
     private boolean isGlobalArg(String paramName) {
         return availableGlobalArgs.values().stream().anyMatch(map -> map.containsKey(paramName));
-    }
-
-    private boolean isK8sConfigParam(String paramName) {
-        return availableK8sConfigArgs.values().stream().anyMatch(map -> map.containsKey(paramName));
     }
 
     /**
@@ -260,7 +248,6 @@ public class CliParser implements ConfigurationParser {
      */
     public ConfigParams parse(String[] cmdLineArgs) {
         HashMap<String, Object> globalArgs = new HashMap<>();
-        Map<String, Object> k8sConfigArgs = new HashMap<>();
         ConfigParams configParams = new ConfigParams();
 
         // action parameters

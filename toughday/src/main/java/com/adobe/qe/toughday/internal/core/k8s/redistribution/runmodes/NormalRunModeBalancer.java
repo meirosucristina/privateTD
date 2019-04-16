@@ -29,33 +29,47 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
         }
     }
 
-    private void processPropertyChange(String property, String newValue, Normal runMode) {
-        if (property.equals("concurrency") && !runMode.isVariableConcurrency()) {
-            System.out.println("[rebalance processor] Processing concurrency change");
-            long newConcurrency = Long.parseLong(newValue);
-            long difference = runMode.getConcurrency() - newConcurrency;
-            List<AsyncTestWorker> workerList = new ArrayList<>(runMode.getRunContext().getTestWorkers());
+    private void reduceConcurrency(long reduce, Normal runMode) {
+        List<AsyncTestWorker> workerList = new ArrayList<>(runMode.getRunContext().getTestWorkers());
 
-            System.out.println("[rebalance processor] currenct concurrency: " + runMode.getConcurrency() + "; new concurrency +" +
+        for (int i = 0; i < reduce; i++) {
+            System.out.println("[rebalance processor] Finished test worker " + workerList.get(0).getWorkerThread().getId());
+            runMode.finishAndDeleteWorker(workerList.get(i));
+        }
+    }
+
+    private void increaseConcurrency(long increase, Normal runMode) {
+        for (int i = 0; i < increase; i++) {
+            System.out.println("[rebalance processor] Creating a new test worker...");
+            runMode.createAndExecuteWorker(runMode.getEngine(), runMode.getEngine().getCurrentPhase().getTestSuite());
+        }
+    }
+
+    private void processPropertyChange(String property, String newValue, Normal runMode) {
+        if (property.equals("concurrency")) {
+
+            System.out.println("[rebalance processor] Processing concurrency change");
+            long currentConcurrency;
+            if (runMode.isVariableConcurrency()) {
+                currentConcurrency = runMode.getActiveThreads();
+            } else {
+                currentConcurrency = runMode.getConcurrency();
+            }
+
+            long newConcurrency = Long.parseLong(newValue);
+            long difference = currentConcurrency - newConcurrency;
+
+            System.out.println("[rebalance processor] currenct concurrency: " + currentConcurrency + "; new concurrency +" +
                     newConcurrency);
 
             System.out.println("[rebalance processsor] concurrency difference is " + difference);
 
             if (difference > 0) {
                 // kill some test workers
-                for (int i = 0; i < difference; i++) {
-                    workerList.get(0).finishExecution();
-                    System.out.println("[rebalance processor] Finished test worker " + workerList.get(0).getWorkerThread().getId());
-
-                    runMode.getRunContext().getTestWorkers().remove(workerList.get(0));
-                    workerList.remove(0);
-                }
+                reduceConcurrency(difference, runMode);
             } else {
                 // create a few more test workers
-                for (int i = 0; i < Math.abs(difference); i++) {
-                    System.out.println("[rebalance processor] Creating a new test worker...");
-                    runMode.createAndExecuteWorker(runMode.getEngine(), runMode.getEngine().getCurrentPhase().getTestSuite());
-                }
+                increaseConcurrency(Math.abs(difference), runMode);
             }
 
             System.out.println("[rebalance processor] Test workers size: " + runMode.getRunContext().getTestWorkers().size());

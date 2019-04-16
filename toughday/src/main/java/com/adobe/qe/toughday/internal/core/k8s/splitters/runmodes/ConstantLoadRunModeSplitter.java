@@ -75,34 +75,34 @@ public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<Cons
         agents.addAll(newAgents);
 
         Map<String, ConstantLoad> taskRunModes = distributeRunMode(runMode, agents);
+        newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart("0"));
 
-        if (runMode.isVariableLoad()) {
-            // compute the current load to compute the new values for start/current load
-            long endTime = System.currentTimeMillis();
-            long diff = endTime - phaseStartTime;
-            int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
-                    * runMode.getRate() + runMode.getStart();
-
-            System.out.println("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
-            System.out.println("Estimated current load " + estimatedCurrentLoad);
-
-            // set start property for new agents
-            newAgents.forEach(agentName -> taskRunModes.get(agentName)
-                    .setStart(String.valueOf(estimatedCurrentLoad / agents.size())));
-
-            // set current load for old agents
-            taskRunModes.get(oldAgents.get(0)).setCurrentLoad(estimatedCurrentLoad / agents.size() +
-                     estimatedCurrentLoad % agents.size());
-            for (int i = 1; i < oldAgents.size(); i++) {
-                taskRunModes.get(oldAgents.get(i)).setCurrentLoad(estimatedCurrentLoad / agents.size());
-            }
-
+        if (!runMode.isVariableLoad()) {
             return taskRunModes;
         }
 
-        newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart("0"));
+        // compute the current load to determine the new values for start/current load
+        long endTime = System.currentTimeMillis();
+        long diff = endTime - phaseStartTime;
+        int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
+                * runMode.getRate() + runMode.getStart();
+
+        System.out.println("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
+        System.out.println("Estimated current load " + estimatedCurrentLoad);
+
+        // set start property for new agents
+        newAgents.forEach(agentName -> taskRunModes.get(agentName)
+                .setStart(String.valueOf(estimatedCurrentLoad / agents.size())));
+
+        // set current load for old agents
+        taskRunModes.get(oldAgents.get(0)).setCurrentLoad(estimatedCurrentLoad / agents.size() +
+                 estimatedCurrentLoad % agents.size());
+        for (String oldAgent : oldAgents) {
+            taskRunModes.get(oldAgent).setCurrentLoad(estimatedCurrentLoad / agents.size());
+        }
 
         return taskRunModes;
+
     }
 
 }

@@ -80,18 +80,20 @@ public class HttpUtils {
             try {
                 agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
             } catch (IOException e) {
+                retrial--;
                 // maybe log warning to indicate why heartbeat failed
                 continue;
             }
 
-            successfulRequest = checkSuccessfulRequest(agentResponse.getStatusLine().getStatusCode());
-            retrial--;
-
-            if (successfulRequest) {
-                return agentResponse;
+            if (agentResponse != null) {
+                successfulRequest = checkSuccessfulRequest(agentResponse.getStatusLine().getStatusCode());
+                if (successfulRequest) {
+                    return agentResponse;
+                }
             }
-        }
 
+            retrial--;
+        }
 
         return null;
     }
