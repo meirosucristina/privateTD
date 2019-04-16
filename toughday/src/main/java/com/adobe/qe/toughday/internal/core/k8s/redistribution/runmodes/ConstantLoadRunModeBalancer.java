@@ -2,11 +2,38 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 
 public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<ConstantLoad> {
+    protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeBalancer.class);
+
+
+    @Override
+    public Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
+        Map<String, String> runModeProps = super.getRunModePropertiesToRedistribute(type, object);
+
+        // add current load
+        runModeProps.put("currentload", String.valueOf(((ConstantLoad)object).getCurrentLoad()));
+
+        return runModeProps;
+    }
+
+    @Override
+    public void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, ConstantLoad runMode) {
+        super.processRunModeInstructions(rebalanceInstructions, runMode);
+
+        Map<String, String> runModeProps = rebalanceInstructions.getRunModeProperties();
+        if (runModeProps.containsKey("currentload")) {
+            System.out.println("Changing current load from " + runMode.getCurrentLoad() + " to " +
+                    runModeProps.get("currentload"));
+            runMode.setCurrentLoad(Integer.parseInt(runModeProps.get("currentload")));
+        }
+    }
+
     private void processPropertyChange(String property, String newValue, ConstantLoad runMode) {
         if (property.equals("load") && !runMode.isVariableLoad()) {
             System.out.println("[constant load run mode balancer] Processing load change");
@@ -40,7 +67,6 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
             /* We must cancel the scheduled task and reschedule it with the new values for 'period' and
              * initial delay.
              */
-
             boolean cancelled = runMode.cancelPeriodicTask();
             if (!cancelled) {
                 System.out.println("[constant load run mode balancer]  task could not be cancelled.");
@@ -51,6 +77,7 @@ public class ConstantLoadRunModeBalancer extends AbstractRunModeBalancer<Constan
         }
 
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+
         runModeProperties.forEach((property, propValue) ->
                 processPropertyChange(property, propValue, runMode));
     }

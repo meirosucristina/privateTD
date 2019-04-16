@@ -67,7 +67,8 @@ public class NormalRunModeSplitter implements RunMode.RunModeSplitter<Normal> {
     }
 
     @Override
-    public Map<String, Normal> distributeRunModeForRebalancingWork(Normal runMode, List<String> oldAgents, List<String> newAgents) {
+    public Map<String, Normal> distributeRunModeForRebalancingWork(Normal runMode, List<String> oldAgents,
+                                                                   List<String> newAgents, long phaseStartTime) {
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
 

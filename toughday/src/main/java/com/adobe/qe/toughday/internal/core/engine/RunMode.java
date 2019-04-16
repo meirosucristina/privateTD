@@ -35,8 +35,7 @@ public interface RunMode {
 
     interface RunModeSplitter<T extends RunMode> extends Cloneable {
         Map<String, T> distributeRunMode(T runMode, List<String> agents);
-        Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents);
+        Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents,
+                                                           long phaseStartTime);
     }
-
-     // void processRebalanceInstructions(RebalanceInstructions rebalanceInstructions);
 }

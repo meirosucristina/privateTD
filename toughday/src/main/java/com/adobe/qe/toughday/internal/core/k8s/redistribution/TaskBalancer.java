@@ -1,6 +1,5 @@
 package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 
-import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
@@ -15,7 +14,6 @@ import org.apache.http.HttpResponse;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -61,26 +59,6 @@ public class TaskBalancer {
         }
 
         return instance;
-    }
-
-    private Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
-        final Map<String, String> properties = new HashMap<>();
-
-        Arrays.stream(type.getDeclaredMethods())
-                .filter(method -> method.isAnnotationPresent(ConfigArgGet.class))
-                .filter(method -> method.getAnnotation(ConfigArgGet.class).redistribute())
-                .forEach(method -> {
-                    try {
-                        String propertyName = Configuration.propertyFromMethod(method.getName());
-                        Object value = method.invoke(object);
-
-                        properties.put(propertyName, String.valueOf(value));
-                    } catch (IllegalAccessException | InvocationTargetException e) {
-                        e.printStackTrace();
-                    }
-                });
-
-        return properties;
     }
 
     private Map<String, Long> getTestSuitePropertiesToRedistribute(TestSuite taskTestSuite) {
@@ -131,7 +109,8 @@ public class TaskBalancer {
 
             // set new value for count property
             Map<String, Long> testSuiteProperties = getTestSuitePropertiesToRedistribute(testSuite);
-            Map<String, String> runModeProperties = this.getRunModePropertiesToRedistribute(runMode.getClass(), runMode);
+            Map<String, String> runModeProperties = runMode.getRunModeBalancer()
+                    .getRunModePropertiesToRedistribute(runMode.getClass(), runMode);
 
             RebalanceInstructions rebalanceInstructions = new RebalanceInstructions(testSuiteProperties, runModeProperties);
             try {
@@ -169,7 +148,7 @@ public class TaskBalancer {
             (Phase phase, Map<String, Long> executionsPerTest,
             ConcurrentHashMap<String, String> activeAgents,
             Map<String, String> recentlyAddedAgents,
-            Configuration configuration) throws CloneNotSupportedException {
+            Configuration configuration, long phaseStartTime) throws CloneNotSupportedException {
         // check if one agent failed to respond to heartbeat before TD execution started.
         if (phase == null) {
             return new HashMap<>();
@@ -179,8 +158,9 @@ public class TaskBalancer {
 
         Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
 
+        System.out.println("[task balancer] calling split phase for rebalancing work...");
         Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents.keySet()),
-                new ArrayList<>(recentlyAddedAgents.keySet()));
+                new ArrayList<>(recentlyAddedAgents.keySet()), phaseStartTime);
 
         // System.out.println("[rebalancing]Size of agents : " + agentNames.size() + " : " + agentNames.toString());
         sendInstructionsToOldAgents(phases, activeAgents);
@@ -191,7 +171,7 @@ public class TaskBalancer {
 
     public Map<String, Future<HttpResponse>> rebalanceWork(Phase phase, Map<String, Long> executionsPerTest,
                               ConcurrentHashMap<String, String> activeAgents,
-                              Configuration configuration) {
+                              Configuration configuration, long phaseExecutionStartTime) {
         this.state = RebalanceState.EXECUTING;
         Map<String, Future<HttpResponse>> newRunningTasks = null;
         Map<String, String> newAgents = new HashMap<>(recentlyAddedAgents);
@@ -199,7 +179,8 @@ public class TaskBalancer {
         System.out.println("[Rebalance] Starting....");
 
         try {
-           newRunningTasks = requestRebalancing(phase, executionsPerTest, activeAgents, newAgents, configuration);
+           newRunningTasks = requestRebalancing(phase, executionsPerTest, activeAgents, newAgents,
+                   configuration, phaseExecutionStartTime);
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
         }
@@ -213,7 +194,7 @@ public class TaskBalancer {
             System.out.println("[task balancer] delayed rebalance must be scheduled for new agents = " + this.recentlyAddedAgents.toString());
             this.scheduleRebalance.schedule(() -> {
                 System.out.println("[task balancer] starting delayed rebalancing...");
-                return rebalanceWork(phase, executionsPerTest, activeAgents, configuration);
+                return rebalanceWork(phase, executionsPerTest, activeAgents, configuration, phaseExecutionStartTime);
             }, GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
         } else {
             this.state = RebalanceState.UNNECESSARY;

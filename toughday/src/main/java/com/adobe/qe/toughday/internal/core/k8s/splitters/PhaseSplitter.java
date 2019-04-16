@@ -80,7 +80,8 @@ public class PhaseSplitter {
         return mapPhaseToAgent(phase, partitionRunModes, partitionTestSuites, agents);
     }
 
-    public Map<String, Phase> splitPhaseForRebalancingWork(Phase phase, List<String> oldAgents, List<String> newAgents)
+    public Map<String, Phase> splitPhaseForRebalancingWork(Phase phase, List<String> oldAgents,
+                                                           List<String> newAgents, long phaseStartTime)
             throws CloneNotSupportedException {
         sanityChecks(phase, oldAgents);
 
@@ -88,7 +89,8 @@ public class PhaseSplitter {
         allAgents.addAll(newAgents);
 
         Map<String, RunMode> partitionRunModes =
-                phase.getRunMode().getRunModeSplitter().distributeRunModeForRebalancingWork(phase.getRunMode(), oldAgents, newAgents);
+                phase.getRunMode().getRunModeSplitter().distributeRunModeForRebalancingWork(phase.getRunMode(), oldAgents,
+                        newAgents, phaseStartTime);
         Map<String, TestSuite> partitionTestSuites = distributeTestSuite(phase.getTestSuite(), allAgents);
 
         return mapPhaseToAgent(phase, partitionRunModes, partitionTestSuites, allAgents);

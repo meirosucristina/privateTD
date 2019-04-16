@@ -94,6 +94,9 @@ public class Driver {
                     LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentName));
                 }
 
+                // al execution queries were sent => set phase execution start time
+                this.distributedPhaseMonitor.setPhaseStartTime(System.currentTimeMillis());
+
                 // we should wait until all agents complete the current tasks in order to execute phases sequentially
                 this.distributedPhaseMonitor.waitForPhaseCompletion();
 
@@ -146,17 +149,10 @@ public class Driver {
                             this.rebalanceScheduler.schedule(() -> taskBalancer.rebalanceWork(
                                     distributedPhaseMonitor.getPhase(),
                                     distributedPhaseMonitor.getExecutionsPerTest(),
-                                    agents, configuration), GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+                                    agents, configuration, distributedPhaseMonitor.getPhaseStartTime()),
+                                    GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
                     newRunningTasks.add(scheduledFuture);
                 }
-
-                /*Map<String, Future<HttpResponse>> newRunningTasks =
-                        taskBalancer.rebalanceWork(this.distributedPhaseMonitor.getPhase(),
-                                this.distributedPhaseMonitor.getExecutionsPerTest(),
-                                agents, this.configuration);
-
-                // start monitoring the new tasks
-                newRunningTasks.forEach(distributedPhaseMonitor::registerRunningTask); */
 
                 System.out.println("Registered agent with ip " + agentIp);
                 return "";

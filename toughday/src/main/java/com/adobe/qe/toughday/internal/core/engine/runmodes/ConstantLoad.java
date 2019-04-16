@@ -78,7 +78,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     @ConfigArgGet(redistribute = true)
     public int getLoad() { return this.load; }
 
-    @ConfigArgGet()
+    @ConfigArgGet(redistribute = true)
     public int getStart() {
         return start;
     }
@@ -140,6 +140,14 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     public int getOneAgentRate() {
         return this.oneAgentRate;
+    }
+
+    public void setCurrentLoad(int currentLoad) {
+        this.currentLoad = currentLoad;
+    }
+
+    public int getCurrentLoad() {
+        return this.currentLoad;
     }
 
     @Override

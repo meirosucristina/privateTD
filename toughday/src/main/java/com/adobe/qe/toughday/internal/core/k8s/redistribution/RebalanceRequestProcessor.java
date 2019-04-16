@@ -61,11 +61,6 @@ public class RebalanceRequestProcessor {
         RebalanceInstructions rebalanceInstructions =
                 objectMapper.readValue(jsonContent, RebalanceInstructions.class);
 
-        /*// prepare run mode for the new configuration
-        phase.getRunMode().processRebalanceInstructions(rebalanceInstructions);
-        System.out.println("[rebalance processor] Run mode has updated the agent. We are ready to modify run mode properties.");
-        */
-
         // update values for each modified property
         processRunModeChanges(rebalanceInstructions, phase.getRunMode());
         System.out.println("[rebalance processor] Updated run mode properties.");

@@ -1,5 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
+import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
@@ -7,9 +8,32 @@ import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructi
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunModeBalancer<T> {
+
+    @Override
+    public Map<String, String> getRunModePropertiesToRedistribute(Class type, Object object) {
+        final Map<String, String> properties = new HashMap<>();
+
+        Arrays.stream(type.getDeclaredMethods())
+                .filter(method -> method.isAnnotationPresent(ConfigArgGet.class))
+                .filter(method -> method.getAnnotation(ConfigArgGet.class).redistribute())
+                .forEach(method -> {
+                    try {
+                        String propertyName = Configuration.propertyFromMethod(method.getName());
+                        Object value = method.invoke(object);
+
+                        properties.put(propertyName, String.valueOf(value));
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        e.printStackTrace();
+                    }
+                });
+
+        return properties;
+    }
+
     @Override
     public void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, T runMode) {
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();

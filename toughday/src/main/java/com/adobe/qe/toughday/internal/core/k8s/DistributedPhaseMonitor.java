@@ -16,9 +16,18 @@ public class DistributedPhaseMonitor {
     // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
     private Map<String, Map<String, Long>> executions = new HashMap<>();
     private Phase phase;
+    private long phaseStartTime = 0;
 
     public boolean isPhaseExecuting() {
         return this.phase != null && !this.runningTasks.isEmpty();
+    }
+
+    public void setPhaseStartTime(long phaseStartTime) {
+        this.phaseStartTime = phaseStartTime;
+    }
+
+    public long getPhaseStartTime() {
+        return this.phaseStartTime;
     }
 
     public void setPhase(Phase phase) {

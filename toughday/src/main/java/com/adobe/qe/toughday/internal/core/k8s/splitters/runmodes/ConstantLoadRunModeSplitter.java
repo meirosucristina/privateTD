@@ -3,7 +3,6 @@ package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,17 +68,38 @@ public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<Cons
 
     @Override
     public Map<String, ConstantLoad> distributeRunModeForRebalancingWork(ConstantLoad runMode, List<String> oldAgents,
-                                                                         List<String> newAgents) {
-
-        LOG.info("[constant load run mode splitter] Distributing for rebalancing work...");
+                                                                         List<String> newAgents, long phaseStartTime) {
+        System.out.println("[constant load run mode splitter] Distributing for rebalancing work...");
 
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
 
         Map<String, ConstantLoad> taskRunModes = distributeRunMode(runMode, agents);
 
-        // set start property to 'rate' for each new agent
-        // newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart(String.valueOf(taskRunModes.get(agentName).getRate())));
+        if (runMode.isVariableLoad()) {
+            // compute the current load to compute the new values for start/current load
+            long endTime = System.currentTimeMillis();
+            long diff = endTime - phaseStartTime;
+            int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
+                    * runMode.getRate() + runMode.getStart();
+
+            System.out.println("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
+            System.out.println("Estimated current load " + estimatedCurrentLoad);
+
+            // set start property for new agents
+            newAgents.forEach(agentName -> taskRunModes.get(agentName)
+                    .setStart(String.valueOf(estimatedCurrentLoad / agents.size())));
+
+            // set current load for old agents
+            taskRunModes.get(oldAgents.get(0)).setCurrentLoad(estimatedCurrentLoad / agents.size() +
+                     estimatedCurrentLoad % agents.size());
+            for (int i = 1; i < oldAgents.size(); i++) {
+                taskRunModes.get(oldAgents.get(i)).setCurrentLoad(estimatedCurrentLoad / agents.size());
+            }
+
+            return taskRunModes;
+        }
+
         newAgents.forEach(agentName -> taskRunModes.get(agentName).setStart("0"));
 
         return taskRunModes;
