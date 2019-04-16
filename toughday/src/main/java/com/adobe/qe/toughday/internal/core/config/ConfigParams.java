@@ -11,6 +11,7 @@ governing permissions and limitations under the License.
 */
 package com.adobe.qe.toughday.internal.core.config;
 
+import com.sun.corba.se.spi.ior.ObjectKey;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -26,6 +27,7 @@ public class ConfigParams implements Serializable {
 
     private List<PhaseParams> phasesParams = new ArrayList<>();
     private Map<String, Object> globalParams = new HashMap<>();
+    private Map<String, Object> k8sConfigParams = new HashMap<>();
     private Map<String, Object> publishModeParams = new HashMap<>();
     private Map<String, Object> runModeParams = new HashMap<>();
     private List<Map.Entry<Actions, MetaObject>> items = new ArrayList<>();
@@ -92,6 +94,10 @@ public class ConfigParams implements Serializable {
 
     public void setGlobalParams(Map<String, Object> globalParams) {
         this.globalParams = globalParams;
+    }
+
+    public void setK8sConfigParams(Map<String, Object> k8sConfigParams) {
+        this.k8sConfigParams = k8sConfigParams;
     }
 
     public void setPhasesParams(List<PhaseParams> phasesParams) {
@@ -163,12 +169,15 @@ public class ConfigParams implements Serializable {
         return globalParams;
     }
 
+    public Map<String, Object> getK8sConfigParams() { return k8sConfigParams; }
+
     public Map<String, Object> getPublishModeParams() { return publishModeParams; }
 
     public Map<String, Object> getRunModeParams() { return runModeParams; }
 
     public void merge(ConfigParams other) {
         globalParams.putAll(other.getGlobalParams());
+        k8sConfigParams.putAll(other.k8sConfigParams);
         items.addAll(other.items);
         phasesParams.addAll(other.phasesParams);
 

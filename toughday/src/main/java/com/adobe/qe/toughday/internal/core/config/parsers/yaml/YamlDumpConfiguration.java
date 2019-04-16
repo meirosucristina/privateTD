@@ -6,6 +6,7 @@ import com.adobe.qe.toughday.internal.core.ReflectionsContainer;
 import com.adobe.qe.toughday.internal.core.config.*;
 
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
 import org.apache.logging.log4j.Level;
 import org.yaml.snakeyaml.Yaml;
 
@@ -126,6 +127,11 @@ public class YamlDumpConfiguration {
        globals.put("duration", String.valueOf(globals.get("duration")) + 's');
 
        return globals;
+    }
+
+    /* used for dumping the K8s cluster configuration */
+    public Map<String, Object> getK8sConfig() {
+        return collectConfigurableProperties(K8SConfig.class, configuration.getK8SConfig());
     }
 
     /**

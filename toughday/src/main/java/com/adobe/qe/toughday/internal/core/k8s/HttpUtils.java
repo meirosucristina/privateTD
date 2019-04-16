@@ -2,8 +2,11 @@ package com.adobe.qe.toughday.internal.core.k8s;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
@@ -37,9 +40,9 @@ public class HttpUtils {
         return null;
     }
 
-    public void sendSyncHttpRequest(String requestContent, String agentURI) {
+    public boolean sendSyncHttpRequest(String requestContent, String URI) {
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost request = new HttpPost(agentURI);
+        HttpPost request = new HttpPost(URI);
 
         try {
             StringEntity params = new StringEntity(requestContent);
@@ -49,11 +52,63 @@ public class HttpUtils {
             // submit request and wait for ack from agent
             HttpResponse response = httpClient.execute(request);
             System.out.println("Response code is " + response.getStatusLine().getStatusCode());
+            return checkSuccessfulRequest(response.getStatusLine().getStatusCode());
 
         } catch (IOException e)  {
-            System.out.println("Http request could not be sent to  " + agentURI);
+            System.out.println("Http request could not be sent to  " + URI);
             System.out.println(e.getMessage());
         }
+
+        return false;
+    }
+
+    public HttpResponse sendHeartbeatRequest(String agentURI, int retrial ){
+        CloseableHttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
+        HttpResponse agentResponse;
+
+        // configure timeout limits
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectionRequestTimeout(1000)
+                .setConnectTimeout(1000)
+                .setSocketTimeout(1000)
+                .build();
+        HttpGet heartbeatRequest = new HttpGet(agentURI);
+        heartbeatRequest.setConfig(requestConfig);
+
+        boolean successfulRequest;
+        while (retrial > 0) {
+            try {
+                agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
+            } catch (IOException e) {
+                // maybe log warning to indicate why heartbeat failed
+                continue;
+            }
+
+            successfulRequest = checkSuccessfulRequest(agentResponse.getStatusLine().getStatusCode());
+            retrial--;
+
+            if (successfulRequest) {
+                return agentResponse;
+            }
+        }
+
+
+        return null;
+    }
+
+    private boolean checkSuccessfulRequest(int responseCode) {
+        return responseCode >= 200 && responseCode < 300;
+    }
+
+    public boolean sendSyncHttpRequest(String requestContent, String URI, int retrial) {
+        boolean successfulRequest = false;
+
+        while (retrial > 0 && !successfulRequest) {
+            successfulRequest = sendSyncHttpRequest(requestContent, URI);
+            retrial--;
+        }
+
+        return successfulRequest;
     }
 
 }

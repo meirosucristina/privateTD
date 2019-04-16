@@ -38,7 +38,6 @@ public class Driver {
 
     protected static final Logger LOG = LogManager.getLogger(Driver.class);
     private static final AtomicInteger id = new AtomicInteger(0);
-    private long heartbeatInterval = GlobalArgs.parseDurationToSeconds("5s");
 
     private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -50,9 +49,11 @@ public class Driver {
     private final HttpUtils httpUtils = new HttpUtils();
     private DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
     private Configuration configuration;
+    private Configuration driverConfiguration;
     private List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks = new ArrayList<>();
 
-    public Driver() {
+    public Driver(Configuration configuration) {
+        this.driverConfiguration = configuration;
         asyncClient.start();
     }
 
@@ -69,8 +70,24 @@ public class Driver {
         }
     }
 
+    private void updateK8sConfigParams(Configuration configuration) {
+        if (this.driverConfiguration.getK8SConfig().getHeartbeatIntervalInSeconds() !=
+            this.configuration.getK8SConfig().getHeartbeatIntervalInSeconds()) {
+            // cancel heartbeat task and reschedule it with the new period
+            this.heartbeatScheduler.shutdownNow();
+
+            this.driverConfiguration.getK8SConfig().merge(configuration.getK8SConfig());
+            scheduleHeartbeatTask();
+
+            return;
+        }
+
+        this.driverConfiguration.getK8SConfig().merge(configuration.getK8SConfig());
+    }
+
     private void handleExecutionRequest(Configuration configuration) {
         handleToughdaySampleContent(configuration);
+        updateK8sConfigParams(configuration);
 
         PhaseSplitter phaseSplitter = new PhaseSplitter();
 
@@ -108,6 +125,36 @@ public class Driver {
         }
     }
 
+    private void scheduleHeartbeatTask() {
+        System.out.println("Scheduling heartbeat...");
+        // we should periodically send heartbeat messages from driver to all the agents
+        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor, this.configuration),
+                0, this.driverConfiguration.getK8SConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
+    }
+
+    private void scheduleNewAgentsMonitoringTask() {
+        /* we should periodically check if recently added agents started executing task and
+        we should monitor them.
+         */
+        this.startMonitoringAgents.scheduleAtFixedRate(() -> {
+            System.out.println("[driver - monitoring agents] Started...");
+            List<ScheduledFuture<Map<String, Future<HttpResponse>>>> finishedFutures = this.newRunningTasks.stream()
+                    .filter(Future::isDone)
+                    .collect(Collectors.toList());
+
+            finishedFutures.forEach(future -> {
+                System.out.println("[driver - monitoring agents] monitoring new running tasks has started...");
+                try {
+                    future.get().forEach(this.distributedPhaseMonitor::registerRunningTask);
+                    this.newRunningTasks.removeAll(finishedFutures);
+                } catch (InterruptedException | ExecutionException e) {
+                    e.printStackTrace();
+                }
+            });
+        }, 0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
+
+    }
+
     public void run() {
         /* expose http endpoint for running TD with the given configuration */
         post(EXECUTION_PATH, ((request, response) -> {
@@ -115,6 +162,7 @@ public class Driver {
             Configuration configuration = new Configuration(yamlConfiguration);
             this.configuration = configuration;
 
+            // handle execution in a different thread to be able to quickly respond to this request
             new Thread() {
                 public synchronized void run() {
                     handleExecutionRequest(configuration);
@@ -150,7 +198,8 @@ public class Driver {
                                     distributedPhaseMonitor.getPhase(),
                                     distributedPhaseMonitor.getExecutionsPerTest(),
                                     agents, configuration, distributedPhaseMonitor.getPhaseStartTime()),
-                                    GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+                                    configuration.getK8SConfig().getRedistributionWaitTimeInSeconds(),
+                                    TimeUnit.SECONDS);
                     newRunningTasks.add(scheduledFuture);
                 }
 
@@ -164,29 +213,9 @@ public class Driver {
             return "";
         });
 
-        System.out.println("Scheduling heartbeat...");
-        // we should periodically send heartbeat messages from driver to all the agents
-        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor, this.configuration),
-                0, heartbeatInterval, TimeUnit.SECONDS);
+        scheduleHeartbeatTask();
 
-        /* we should periodically check if recently added agents started executing task and
-        we should monitor them.
-         */
-        this.startMonitoringAgents.scheduleAtFixedRate(() -> {
-            System.out.println("[driver - monitoring agents] Started...");
-            List<ScheduledFuture<Map<String, Future<HttpResponse>>>> finishedFutures = this.newRunningTasks.stream()
-                    .filter(Future::isDone)
-                    .collect(Collectors.toList());
-            finishedFutures.forEach(future -> {
-                System.out.println("[driver - monitoring agents] monitoring new running tasks has started...");
-                try {
-                    future.get().forEach(this.distributedPhaseMonitor::registerRunningTask);
-                    this.newRunningTasks.removeAll(finishedFutures);
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            });
-        }, 0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
+        scheduleNewAgentsMonitoringTask();
 
         /* wait for requests */
         while (true) { }

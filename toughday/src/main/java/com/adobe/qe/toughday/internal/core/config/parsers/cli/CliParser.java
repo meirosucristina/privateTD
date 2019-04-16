@@ -29,6 +29,7 @@ import com.adobe.qe.toughday.internal.core.config.*;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.google.common.base.Joiner;
 import net.jodah.typetools.TypeResolver;
@@ -53,9 +54,9 @@ public class CliParser implements ConfigurationParser {
     private static final String TEST_CLASS_HELP_HEADER = String.format(HELP_HEADER_FORMAT_WITH_TAGS, "Class", "Fully qualified domain name", "Tags", "Description");
     private static final String PUBLISH_CLASS_HELP_HEADER = String.format(HELP_HEADER_FORMAT_NO_TAGS, "Class", "Fully qualified domain name", "Description");
     private static final String METRIC_CLASS_HELP_HEADER = PUBLISH_CLASS_HELP_HEADER;
-    private static Method[] globalArgMethods = GlobalArgs.class.getMethods();
     private static final String SUITE_HELP_HEADER = String.format("   %-40s %-40s   %s", "Suite", "Tags", "Description");
     private static Map<Integer, Map<String, ConfigArgSet>> availableGlobalArgs = new HashMap<>();
+    private static Map<Integer, Map<String, ConfigArgSet>> availableK8sConfigArgs = new HashMap<>();
     private static List<ParserArgHelp> parserArgHelps = new ArrayList<>();
 
 
@@ -73,18 +74,24 @@ public class CliParser implements ConfigurationParser {
                 add("tag");
             }});
 
+    private static void collectAvailableConfigurationOptions(Class type, Map<Integer, Map<String, ConfigArgSet>> availableArgs) {
+        Arrays.stream(type.getMethods())
+                .filter(method -> method.isAnnotationPresent(ConfigArgSet.class))
+                .forEach(method -> {
+                    ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
+                    int order = annotation.order();
+                    if (!availableArgs.containsKey(order)) {
+                        availableArgs.put(order, new HashMap<>());
+                    }
+
+                    availableArgs.get(order)
+                            .put(Configuration.propertyFromMethod(method.getName()), annotation);
+                });
+    }
+
     static {
-        for (Method method : globalArgMethods) {
-            if (method.getAnnotation(ConfigArgSet.class) != null) {
-                ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
-                int order = annotation.order();
-                if (null == availableGlobalArgs.get(order)) {
-                    availableGlobalArgs.put(order, new HashMap<String, ConfigArgSet>());
-                }
-                Map<String, ConfigArgSet> globalArgMap = availableGlobalArgs.get(order);
-                globalArgMap.put(Configuration.propertyFromMethod(method.getName()), annotation);
-            }
-        }
+        collectAvailableConfigurationOptions(K8SConfig.class, availableK8sConfigArgs);
+        collectAvailableConfigurationOptions(GlobalArgs.class, availableGlobalArgs);
 
         for (Class parserClass : ReflectionsContainer.getSubTypesOf(ConfigurationParser.class)) {
             for (Field field : parserClass.getDeclaredFields()) {
@@ -230,6 +237,22 @@ public class CliParser implements ConfigurationParser {
         return j - startIndex;
     }
 
+    private boolean checkConfigParamExists(String paramName) {
+        List<Map<String, ConfigArgSet>> configArgs = new LinkedList<>(availableGlobalArgs.values());
+        configArgs.addAll(availableK8sConfigArgs.values());
+
+        return configArgs.stream().anyMatch(map -> map.containsKey(paramName));
+
+    }
+
+    private boolean isGlobalArg(String paramName) {
+        return availableGlobalArgs.values().stream().anyMatch(map -> map.containsKey(paramName));
+    }
+
+    private boolean isK8sConfigParam(String paramName) {
+        return availableK8sConfigArgs.values().stream().anyMatch(map -> map.containsKey(paramName));
+    }
+
     /**
      * Implementation of parser interface
      * @param cmdLineArgs command line arguments
@@ -237,6 +260,7 @@ public class CliParser implements ConfigurationParser {
      */
     public ConfigParams parse(String[] cmdLineArgs) {
         HashMap<String, Object> globalArgs = new HashMap<>();
+        Map<String, Object> k8sConfigArgs = new HashMap<>();
         ConfigParams configParams = new ConfigParams();
 
         // action parameters
@@ -261,6 +285,9 @@ public class CliParser implements ConfigurationParser {
                 } else if (arg.equals("runmode")) {
                     skip = parseObjectProperties(i + 1, cmdLineArgs, args);
                     configParams.setRunModeParams(args);
+                } else if (arg.equals("k8sconfig")) {
+                    skip = parseObjectProperties(i + 1, cmdLineArgs, args);
+                    configParams.setK8sConfigParams(args);
                 } else if (arg.equals("help")) {
                     skip = 1;
                     globalArgs.put("host", "N/A"); //TODO remove ugly hack
@@ -268,14 +295,9 @@ public class CliParser implements ConfigurationParser {
                     String[] res = parseProperty(arg);
                     String key = res[0];
                     Object val = getObjectFromString(res[1]);
-                    // if global param does not exist
-                    boolean found = false;
-                    for (Map<String, ConfigArgSet> argz : availableGlobalArgs.values()) {
-                        if (argz.containsKey(key)) {
-                            found = true;
-                            break;
-                        }
-                    }
+                    // if global param or k8s config param does not exist
+                    boolean found = isGlobalArg(key);
+
                    if (!found && !parserArgs.contains(key) && !availableHelpOptions.contains(key) && !helpOptionsParameters.contains(key)
                             && !key.equals("suite")  && !key.equals("suitesetup")) {
                         throw new IllegalArgumentException("Unrecognized argument --" + key);

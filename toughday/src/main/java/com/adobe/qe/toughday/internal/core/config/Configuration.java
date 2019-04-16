@@ -25,6 +25,7 @@ import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
+import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.publishers.CSVPublisher;
 import com.adobe.qe.toughday.publishers.ConsolePublisher;
@@ -62,6 +63,7 @@ public class Configuration {
 
     private PredefinedSuites predefinedSuites = new PredefinedSuites();
     private GlobalArgs globalArgs;
+    private K8SConfig k8SConfig;
     private RunMode runMode;
     private PublishMode publishMode;
     private TestSuite globalSuite;
@@ -261,28 +263,14 @@ public class Configuration {
     }
 
     private boolean executeInDitributedMode(ConfigParams configParams) {
-        return configParams.getGlobalParams().containsKey("k8srun") && (
-                boolean) configParams.getGlobalParams().get("k8srun");
+        return !configParams.getK8sConfigParams().isEmpty() &&
+                !this.getK8SConfig().getK8sAgent() &&
+                !this.getK8SConfig().getK8sdriver();
     }
 
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
         ConfigParams copyOfConfigParams = ConfigParams.deepClone(configParams);
         Map<String, Class> items = new HashMap<>();
-
-        /* check if we should trigger an execution query in the K8S cluster. */
-        if (executeInDitributedMode(configParams)) {
-            // sanity check
-            if (configParams.getGlobalParams().get("driverip") == null) {
-                throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
-                        " is required when running TD in distributed mode.");
-            }
-
-            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
-            generateYaml.getGlobals().remove("k8srun");
-            generateYaml.getGlobals().remove("driverip");
-            new ExecutionTrigger(generateYaml.createYamlStringRepresentation(),
-                    String.valueOf(configParams.getGlobalParams().get("driverip"))).triggerExecution();
-        }
 
         // we should load extensions before any configuration object is created.
         handleExtensions(configParams);
@@ -294,8 +282,15 @@ public class Configuration {
             }
         }
 
-        this.globalArgs = createObject(GlobalArgs.class, globalArgsMeta);
+        this.k8SConfig = createObject(K8SConfig.class, configParams.getK8sConfigParams());
 
+        /* check if we should trigger an execution query in the K8S cluster. */
+        if (executeInDitributedMode(copyOfConfigParams)) {
+            new ExecutionTrigger(copyOfConfigParams).triggerExecution();
+            System.exit(0);
+        }
+
+        this.globalArgs = createObject(GlobalArgs.class, globalArgsMeta);
         configureLogPath(globalArgs.getLogPath());
 
         applyLogLevel(globalArgs.getLogLevel());
@@ -871,6 +866,14 @@ public class Configuration {
      */
     public GlobalArgs getGlobalArgs() {
         return globalArgs;
+    }
+
+    /**
+     * Getter for kubernetes config args
+     * @return
+     */
+    public K8SConfig getK8SConfig() {
+        return this.k8SConfig;
     }
 
     /**

@@ -1,54 +1,44 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.logging.log4j.Level;
+import com.adobe.qe.toughday.internal.core.config.ConfigParams;
+import com.adobe.qe.toughday.internal.core.config.parsers.yaml.GenerateYamlConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
+import java.util.HashMap;
+
 
 /**
- * Class responsible for sending a request to the driver component in the K8s cluster for
+ * Class responsible for sending a request to the driver component in the K8s cluster
  * that will trigger the execution of TD.
  */
 public class ExecutionTrigger {
 
     protected static final Logger LOG = LogManager.getLogger(ExecutionTrigger.class);
 
-    private final String stringYamlConfig;
-    private final String driverURI;
+    private final ConfigParams configParams;
+    private final String executionPath;
 
-    public ExecutionTrigger(String stringYamlConfig, String driverURI) {
-        if (stringYamlConfig == null || stringYamlConfig.isEmpty()) {
-            throw new IllegalStateException("StringYamlConfiguration must not be null or empty.");
+    public ExecutionTrigger(ConfigParams configParams) {
+        this.configParams = configParams;
+        // sanity check
+        if (configParams.getK8sConfigParams().get("driverip") == null) {
+            throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
+                    " is required when running TD in distributed mode.");
         }
 
-        this.stringYamlConfig = stringYamlConfig;
-        this.driverURI = driverURI;
+        this.executionPath = "http://" + configParams.getK8sConfigParams().get("driverip") + ":80"  + "/config";
     }
 
-    public void triggerExecution() throws IOException {
-        /* build HTTP query with yaml configuration as body */
-        HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost request = new HttpPost("http://" + this.driverURI + ":80"  + "/config");
-        StringEntity params = new StringEntity(stringYamlConfig);
+    public void triggerExecution() {
+        GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(configParams, new HashMap<>());
+        String yamlConfig = generateYaml.createYamlStringRepresentation();
+        System.out.println(yamlConfig);
+        HttpUtils httpUtils = new HttpUtils();
 
-        request.setEntity(params);
-        request.setHeader("Content-type", "text/plain");
-
-        /* submit request and log response code */
-        HttpResponse response = httpClient.execute(request);
-        LOG.log(Level.INFO, "Driver response code: " + response.getStatusLine().getStatusCode());
-
-        try {
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        if (!httpUtils.sendSyncHttpRequest(yamlConfig, executionPath, 3)) {
+            LOG.warn("TD execution request could not be sent to driver. Make sure that driver is up" +
+                    " and ready to process requests.");
         }
-        System.exit(0);
     }
 }

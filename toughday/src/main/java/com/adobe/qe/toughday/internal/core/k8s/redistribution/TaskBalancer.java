@@ -74,7 +74,6 @@ public class TaskBalancer {
             if (remained < 0) {
                 // set this to 0 so that the agents will know to delete the test from the test suite
                 test.setCount("0");
-                // phase.getTestSuite().remove(test.getName());
             } else {
                 test.setCount(String.valueOf(remained));
             }
@@ -85,16 +84,8 @@ public class TaskBalancer {
         this.recentlyAddedAgents.put(agentName, ipAddress);
     }
 
-    public Map<String, String> getRecentlyAddedAgents() {
-        return this.recentlyAddedAgents;
-    }
-
     public void addInactiveAgent(String agentName) {
         this.inactiveAgents.add(agentName);
-    }
-
-    public ConcurrentLinkedQueue<String> getInactiveAgents() {
-        return this.inactiveAgents;
     }
 
     private void sendInstructionsToOldAgents(Map<String, Phase> phases,
@@ -195,7 +186,7 @@ public class TaskBalancer {
             this.scheduleRebalance.schedule(() -> {
                 System.out.println("[task balancer] starting delayed rebalancing...");
                 return rebalanceWork(phase, executionsPerTest, activeAgents, configuration, phaseExecutionStartTime);
-            }, GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+            }, configuration.getK8SConfig().getRedistributionWaitTimeInSeconds(), TimeUnit.SECONDS);
         } else {
             this.state = RebalanceState.UNNECESSARY;
         }

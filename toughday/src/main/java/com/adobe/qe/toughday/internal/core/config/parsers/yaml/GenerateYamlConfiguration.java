@@ -56,6 +56,13 @@ public class GenerateYamlConfiguration {
         return globals;
     }
 
+    public Map<String, Object> getK8sConfig() {
+        Map<String, Object> k8sConfigParms = configParams.getK8sConfigParams();
+        // remove this so that the driver won't try to trigger the execution
+        k8sConfigParms.remove("driverip");
+        return k8sConfigParms;
+    }
+
     public Map<String, Object> getPublishmode() {
         return configParams.getPublishModeParams();
     }

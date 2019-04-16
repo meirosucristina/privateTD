@@ -5,11 +5,6 @@ import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.TaskBalancer;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -29,6 +24,7 @@ public class HeartbeatTask implements Runnable {
     private final ConcurrentHashMap<String, String> agents;
     private DistributedPhaseMonitor phaseMonitor;
     private Configuration configuration;
+    private final HttpUtils httpUtils = new HttpUtils();
 
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
 
@@ -39,72 +35,49 @@ public class HeartbeatTask implements Runnable {
         this.configuration = configuration;
     }
 
-    private int executeHeartbeatRequest(HttpClient heartBeatHttpClient, HttpGet heartbeatRequest, String agentName) {
+    private void processHeartbeatResponse(String agentName, HttpResponse agentResponse) {
+        if (agentResponse == null) {
+            return;
+        }
+
         try {
-            HttpResponse agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
-            int responseCode = agentResponse.getStatusLine().getStatusCode();
+            // the agent has sent his statistic for executions/test => aggregate counts
+            Gson gson = new Gson();
+            String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
 
-            if (responseCode == 200) {
-                // the agent has sent his statistic for executions/test => aggregate counts
-                Gson gson = new Gson();
-                String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
+            // gson treats numbers as double values by default
+            Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
+            System.out.println("[Heartbeat task] Received from agent " + agentName + "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
 
-                try {
-                    // gson treats numbers as double values by default
-                    Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
-                    System.out.println("[Heartbeat task] Received from agent " + agentName + "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
-                    // recently added agents might not execute tests yet
-                    if (doubleAgentCounts.isEmpty()) {
-                        return responseCode;
-                    }
-
-                    this.phaseMonitor.getExecutions().forEach((testName, executionsPerAgent) ->
-                            this.phaseMonitor.getExecutions()
-                                    .get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
-
-                } catch (Exception e) {
-                    System.out.println("[heartbeat] Failed to process heartbeat response from agent " + agentName + ". " +
-                            "Error message: "  + e.getMessage());
-                }
-            } else {
-                System.out.println("[heartbeat] Failed to execute heartbeat request for agent " + agentName + ". " +
-                        "Response code : "  + responseCode);
+            // recently added agents might not execute tests yet
+            if (doubleAgentCounts.isEmpty()) {
+                return;
             }
 
-            return responseCode;
-        } catch (IOException e) {
-            return -1;
+            this.phaseMonitor.getExecutions().forEach((testName, executionsPerAgent) ->
+                    this.phaseMonitor.getExecutions()
+                            .get(testName).put(agentName, doubleAgentCounts.get(testName).longValue()));
+
+        } catch (Exception e) {
+            System.out.println("[heartbeat] Failed to process heartbeat response from agent " + agentName + ". " +
+                    "Error message: "  + e.getMessage());
         }
     }
 
     @Override
     public void run() {
         try {
-            for (String agentId : agents.keySet()) {
-                CloseableHttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
-
-                String ipAddress = agents.get(agentId);
+            for (String agentName : agents.keySet()) {
+                String ipAddress = agents.get(agentName);
                 String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
-                // configure timeout limits
-                RequestConfig requestConfig = RequestConfig.custom()
-                        .setConnectionRequestTimeout(1000)
-                        .setConnectTimeout(1000)
-                        .setSocketTimeout(1000)
-                        .build();
-                HttpGet heartbeatRequest = new HttpGet(URI);
-                heartbeatRequest.setConfig(requestConfig);
 
-                int retrial = 3;
-                int responseCode = 0;
-                while (responseCode != 200 && retrial > 0) {
-                    responseCode = executeHeartbeatRequest(heartBeatHttpClient, heartbeatRequest, agentId);
-                    retrial -= 1;
-                }
+                HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
+                processHeartbeatResponse(agentName, agentResponse);
 
-                if (retrial <= 0) {
+                if (agentResponse == null) {
                     LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
                     System.out.println("Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
-                    agents.remove(agentId);
+                    agents.remove(agentName);
 
 
                     if (!this.phaseMonitor.isPhaseExecuting()) {
@@ -116,7 +89,7 @@ public class HeartbeatTask implements Runnable {
                          * is finished
                          **/
 
-                        this.taskBalancer.addInactiveAgent(agentId);
+                        this.taskBalancer.addInactiveAgent(agentName);
                         continue;
                     } else {
                         // TODO: schedule rabalance right now
@@ -128,14 +101,8 @@ public class HeartbeatTask implements Runnable {
                     this.phaseMonitor.removeAgentFromExecutionsMap(agentId);*/
 
                     // TODO: change this when the new pod is able to resume the task
-                    System.out.println("Removing agent " + agentId + " from map of executions. ");
-                    this.phaseMonitor.removeRunningTask(agentId);
-                }
-
-                try {
-                    heartBeatHttpClient.close();
-                } catch (IOException e) {
-                    LOG.warn("HeartBeat apache http client could not be closed.");
+                    System.out.println("Removing agent " + agentName + " from map of executions. ");
+                    this.phaseMonitor.removeRunningTask(agentName);
                 }
             }
 
