@@ -10,9 +10,7 @@ public class RebalanceInstructions {
     private Map<String, String> runModeProperties;
 
     // dummy constructor, required for Jackson
-    public RebalanceInstructions() {
-
-    }
+    public RebalanceInstructions() { }
 
     public RebalanceInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {
         this.counts = counts;

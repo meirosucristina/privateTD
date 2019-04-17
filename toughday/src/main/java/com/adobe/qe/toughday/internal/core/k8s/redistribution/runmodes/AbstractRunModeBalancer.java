@@ -17,6 +17,10 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
     public Map<String, String> getRunModePropertiesToRedistribute(Class type, T object) {
         final Map<String, String> properties = new HashMap<>();
 
+        if (object == null) {
+            throw new IllegalArgumentException("Run mode object must not be null.");
+        }
+
         Arrays.stream(type.getDeclaredMethods())
                 .filter(method -> method.isAnnotationPresent(ConfigArgGet.class))
                 .filter(method -> method.getAnnotation(ConfigArgGet.class).redistribute())
@@ -36,7 +40,15 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
 
     @Override
     public void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, T runMode) {
+        if (rebalanceInstructions == null || runMode == null) {
+            throw new IllegalArgumentException("Rebalance instructions and run mode must not be null.");
+        }
+
         Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+        if (runModeProperties == null || runModeProperties.isEmpty()) {
+            return;
+        }
+
         System.out.println("[AbstractRunModeBalancer] changing values for properties...");
         Arrays.stream(runMode.getClass().getDeclaredMethods())
                 .filter(method -> runModeProperties.containsKey(Configuration.propertyFromMethod(method.getName())))

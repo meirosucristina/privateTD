@@ -56,6 +56,11 @@ public class DistributedPhaseMonitor {
         return this.executions;
     }
 
+    public void resetExecutions() {
+        this.executions.forEach((testName, executionsPerAgent) ->
+                executionsPerAgent.keySet().forEach(agentName -> executionsPerAgent.put(agentName, 0L)));
+    }
+
     public Map<String, Long> getExecutionsPerTest() {
         Map<String, Long> executionsPerTest = new HashMap<>();
 

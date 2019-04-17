@@ -14,7 +14,6 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  */
 public class RebalanceRequestProcessor {
-
     private void processTestSuiteChanges(Map<String, Long> counts, Phase phase) {
         TestSuite testSuite = phase.getTestSuite();
         long nr = testSuite.getTests().stream()

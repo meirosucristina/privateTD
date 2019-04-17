@@ -41,7 +41,7 @@ public class Driver {
 
     private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
-    private final ScheduledExecutorService rebalanceScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService rebalanceScheduler;
     private final ScheduledExecutorService startMonitoringAgents = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
 
@@ -54,6 +54,7 @@ public class Driver {
 
     public Driver(Configuration configuration) {
         this.driverConfiguration = configuration;
+        this.rebalanceScheduler = taskBalancer.getRebalanceScheduler();
         asyncClient.start();
     }
 
@@ -128,7 +129,8 @@ public class Driver {
     private void scheduleHeartbeatTask() {
         System.out.println("Scheduling heartbeat...");
         // we should periodically send heartbeat messages from driver to all the agents
-        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor, this.configuration),
+        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor,
+                        this.configuration, this.driverConfiguration),
                 0, this.driverConfiguration.getK8SConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
     }
 
@@ -195,9 +197,9 @@ public class Driver {
                     // schedule rebalance process
                     ScheduledFuture<Map<String, Future<HttpResponse>>> scheduledFuture =
                             this.rebalanceScheduler.schedule(() -> taskBalancer.rebalanceWork(
-                                    distributedPhaseMonitor.getPhase(),
-                                    distributedPhaseMonitor.getExecutionsPerTest(),
-                                    agents, configuration, distributedPhaseMonitor.getPhaseStartTime()),
+                                    distributedPhaseMonitor,
+                                    agents, configuration, driverConfiguration.getK8SConfig(),
+                                    distributedPhaseMonitor.getPhaseStartTime()),
                                     configuration.getK8SConfig().getRedistributionWaitTimeInSeconds(),
                                     TimeUnit.SECONDS);
                     newRunningTasks.add(scheduledFuture);

@@ -1,6 +1,5 @@
 package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
-import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.AsyncEngineWorker;
 import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
@@ -9,7 +8,6 @@ import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructi
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
 
@@ -87,7 +85,7 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
             /* We must cancel the scheduled task and reschedule it with the new values for 'period' and
              * initial delay.
              */
-            boolean cancelled = runMode.getScheduledFuture().cancel(true);
+            boolean cancelled = runMode.cancelPeriodicTask();
             if (!cancelled) {
                 System.out.println("[normal run mode balancer] task could not be cancelled.");
                 return;
@@ -105,23 +103,11 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
         // TODO: should we wait for all the agents to confirm the interruption on the scheduled task?
         // reschedule the task
         if (runMode.isVariableConcurrency()) {
-            if (runMode.getStart() < runMode.getEnd()) {
-                Runnable rampUpRunnable = runMode.getRampUpRunnable(runMode.getEngine(),
-                        runMode.getEngine().getCurrentPhase().getTestSuite());
-                runMode.getAddWorkerScheduler().scheduleAtFixedRate(rampUpRunnable, runMode.getInitialDelay(),
-                        GlobalArgs.parseDurationToSeconds(runMode.getInterval()) * 1000, TimeUnit.MILLISECONDS);
+            runMode.schedulePeriodicTask();
 
-                System.out.println("[normal run mode balancer] successfully rescheduled ramp up with interval " +
-                        runMode.getInterval() + " and initial delay " + runMode.getInitialDelay());
-
-            } else if (runMode.getStart() > runMode.getEnd()) {
-                Runnable rampDownRunnable = runMode.getRampDownRunnable();
-                runMode.getRemoveWorkerScheduler().scheduleAtFixedRate(rampDownRunnable, runMode.getInitialDelay(),
-                        GlobalArgs.parseDurationToSeconds(runMode.getInterval()) * 1000, TimeUnit.MILLISECONDS);
-
-                System.out.println("[normal run mode balancer] successfully rescheduled ramp down with interval " +
-                        runMode.getInterval() + " and initial delay " + runMode.getInitialDelay());
-            }
+            System.out.println("[normal run mode balancer] successfully rescheduled ramping task " +
+                    "with interval " + runMode.getInterval() + " and initial delay "
+                    + runMode.getInitialDelay());
         }
 
     }
