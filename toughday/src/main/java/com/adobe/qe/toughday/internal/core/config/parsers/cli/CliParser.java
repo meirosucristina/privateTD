@@ -56,6 +56,7 @@ public class CliParser implements ConfigurationParser {
     private static final String METRIC_CLASS_HELP_HEADER = PUBLISH_CLASS_HELP_HEADER;
     private static final String SUITE_HELP_HEADER = String.format("   %-40s %-40s   %s", "Suite", "Tags", "Description");
     private static Map<Integer, Map<String, ConfigArgSet>> availableGlobalArgs = new HashMap<>();
+    private static Map<Integer, Map<String, ConfigArgSet>> availableK8sConfigArgs = new HashMap<>();
     private static List<ParserArgHelp> parserArgHelps = new ArrayList<>();
 
 
@@ -90,6 +91,7 @@ public class CliParser implements ConfigurationParser {
 
     static {
         collectAvailableConfigurationOptions(GlobalArgs.class, availableGlobalArgs);
+        collectAvailableConfigurationOptions(K8SConfig.class, availableK8sConfigArgs);
 
         for (Class parserClass : ReflectionsContainer.getSubTypesOf(ConfigurationParser.class)) {
             for (Field field : parserClass.getDeclaredFields()) {
@@ -475,23 +477,26 @@ public class CliParser implements ConfigurationParser {
         System.out.println("\t java -jar toughday.jar --host=localhost --add extension.jar --add com.adobe.qe.toughday.tests.extensionTest");
         System.out.println("\t java -jar toughday.jar --suite=toughday --add BASICMetrics --add Average decimals=3 --exclude Failed");
 
-        System.out.println("\r\nGlobal arguments:");
+        System.out.println("\r\nExamples for running TD distributed on Kubernetes: \r\n");
+        System.out.println("\t java -jar toughday.jar --host=localhost --k8sconfig driverip=1.1.1.1");
+        System.out.println("\t java -jar toughday.jar --host=localhost --k8sconfig driverip=1.1.1.1 heartbeatinterval=10s --suite=toughday");
 
-        for (Integer order : availableGlobalArgs.keySet()) {
-            Map<String, ConfigArgSet> paramGroup = availableGlobalArgs.get(order);
-            for (String param : paramGroup.keySet()) {
-                System.out.printf("\t--%-32s\t Default: %s - %s\r\n",
-                        param + "=val", paramGroup.get(param).defaultValue(), paramGroup.get(param).desc());
-            }
-        }
+        System.out.println("\r\nGlobal arguments:");
+        availableGlobalArgs.forEach((order, paramGroup) ->
+                paramGroup.forEach((key, value) -> System.out.printf("\t--%-32s\t Default: %s - %s\r\n",
+                        key + "=val", value.defaultValue(), value.desc())));
         for (ParserArgHelp parserArgHelp : parserArgHelps) {
             System.out.printf("\t--%-32s\t Default: %s - %s\r\n",
                     parserArgHelp.name() + "=val", parserArgHelp.defaultValue(), parserArgHelp.description());
         }
-
         //System.out.printf("\t%-32s\t %s\r\n", "--suitesetup=val", getSuiteSetupDescription());
         System.out.printf("\t%-32s\t %s\r\n", "--suite=val",
                 "Default: toughday - Where \"val\" can be one or a list (separated by commas) of the predefined suites");
+
+        System.out.println("\r\nK8s run arguments (--k8sconfig):");
+        availableK8sConfigArgs.forEach((order, paramGroup) ->
+                paramGroup.forEach((key, value) -> System.out.printf("\t%-32s\t Default: %s - %s\r\n",
+                        key + "=val", value.defaultValue(), value.desc())));
 
         System.out.println("\r\nAvailable run modes (--runmode):");
         for(Map.Entry<String, Class<? extends RunMode>> runMode : ReflectionsContainer.getInstance().getRunModeClasses().entrySet()) {

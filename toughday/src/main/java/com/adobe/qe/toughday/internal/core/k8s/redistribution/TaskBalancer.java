@@ -38,10 +38,11 @@ public class TaskBalancer {
     private RebalanceState state = RebalanceState.UNNECESSARY;
 
     public enum RebalanceState {
-        UNNECESSARY,
-        SCHEDULED,
-        RESCHEDULED_REQUIRED,
-        EXECUTING
+        UNNECESSARY,            // no need to redistribute the work
+        SCHEDULED,              // redistribution is scheduled
+        RESCHEDULED_REQUIRED,   /* nr of agents running in the cluster has changed so we must reschedule the work
+                                 * redistribution process */
+        EXECUTING               // work redistribution process is executing right now
     }
 
     public ConcurrentLinkedQueue<String> getInactiveAgents() {

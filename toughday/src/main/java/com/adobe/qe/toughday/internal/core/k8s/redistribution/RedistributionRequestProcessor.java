@@ -53,6 +53,10 @@ public class RedistributionRequestProcessor {
     }
 
     public void processRequest(Request request, Phase phase) throws IOException {
+        if (phase == null) {
+            throw new IllegalStateException("Phase must not be null during work redistribution process.");
+        }
+
         String jsonContent = request.body();
         ObjectMapper objectMapper = new ObjectMapper();
 
