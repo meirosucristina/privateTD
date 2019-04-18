@@ -14,6 +14,7 @@ package com.adobe.qe.toughday;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
 import com.adobe.qe.toughday.internal.core.k8s.cluster.Agent;
 import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +48,12 @@ public class Main {
                 System.out.println();
                 cliParser.printShortHelp();
                 System.exit(1);
+            }
+
+            /* check if we should trigger an execution query in the K8S cluster. */
+            if (configuration.executeInDitributedMode()) {
+                new ExecutionTrigger(configuration).triggerExecution();
+                System.exit(0);
             }
 
             if (configuration.getK8SConfig().getK8sAgent()) {

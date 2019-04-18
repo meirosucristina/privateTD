@@ -3,9 +3,10 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.k8s.DistributedPhaseMonitor;
+import com.adobe.qe.toughday.internal.core.k8s.DistributedPhaseInfo;
 import com.adobe.qe.toughday.internal.core.k8s.HttpUtils;
 import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
@@ -14,6 +15,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpResponse;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -23,14 +26,13 @@ import java.util.concurrent.*;
  * whenever the number of agents is changing.
  */
 public class TaskBalancer {
-    private static final String REBALANCE_PATH = "/rebalance";
-
     private final PhaseSplitter phaseSplitter = new PhaseSplitter();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private final HttpUtils httpUtils = new HttpUtils();
     private final ScheduledExecutorService rebalanceScheduler = Executors.newSingleThreadScheduledExecutor();
     private final ConcurrentLinkedQueue<String> inactiveAgents = new ConcurrentLinkedQueue<>();
     private ConcurrentHashMap<String, String> recentlyAddedAgents = new ConcurrentHashMap<>();
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     private static TaskBalancer instance = null;
     private RebalanceState state = RebalanceState.UNNECESSARY;
@@ -77,18 +79,6 @@ public class TaskBalancer {
         return map;
     }
 
-    private void updateCountPerTest(Phase phase, Map<String, Long> executionsPerTest) {
-        phase.getTestSuite().getTests().forEach(test -> {
-            long remained = test.getCount() - executionsPerTest.get(test.getName());
-            if (remained < 0) {
-                // set this to 0 so that the agents will know to delete the test from the test suite
-                test.setCount("0");
-            } else {
-                test.setCount(String.valueOf(remained));
-            }
-        });
-    }
-
     public void addNewAgent(String agentName, String ipAddress) {
         this.recentlyAddedAgents.put(agentName, ipAddress);
     }
@@ -106,7 +96,7 @@ public class TaskBalancer {
             .filter(entry -> !this.inactiveAgents.contains(entry.getKey())) // filter agents that become inactive
             .forEach(entry -> {
                 String agentName = entry.getKey();
-                String agentURI = "http://" + entry.getValue() + ":4567" + REBALANCE_PATH;
+                String agentURI = HttpUtils.getRebalancePath(entry.getValue());
                 TestSuite testSuite = phases.get(agentName).getTestSuite();
                 RunMode runMode = phases.get(agentName).getRunMode();
 
@@ -115,11 +105,12 @@ public class TaskBalancer {
                 Map<String, String> runModeProperties = runMode.getRunModeBalancer()
                         .getRunModePropertiesToRedistribute(runMode.getClass(), runMode);
 
-                RedistributionInstructions redistributionInstructions = new RedistributionInstructions(testSuiteProperties, runModeProperties);
+                RedistributionInstructions redistributionInstructions =
+                        new RedistributionInstructions(testSuiteProperties, runModeProperties);
                 try {
                     String instructionMessage = mapper.writeValueAsString(redistributionInstructions);
-                    System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName + ". Ip: " + entry.getValue());
-
+                    LOG.info("[redistribution] Sending " + instructionMessage + " to agent " + agentName +
+                            "(" + entry.getValue() + ")");
                     this.httpUtils.sendSyncHttpRequest(instructionMessage, agentURI);
 
                 } catch (JsonProcessingException e) {
@@ -129,67 +120,58 @@ public class TaskBalancer {
         });
     }
 
-    private void sendExecutionQueriesToNewAgents(Map<String, String> recentlyAddedAgents, Map<String, Phase> phases,
-                                                 Configuration configuration,
-                                                 Map<String, Future<HttpResponse>> newRunningTasks) {
+    private Map<String, Future<HttpResponse>> sendExecutionQueriesToNewAgents(Map<String, String> recentlyAddedAgents,
+                                                                              Map<String, Phase> phases,
+                                                                              Configuration configuration) {
+        Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
+
         // for the recently added agents, send execution queries
         recentlyAddedAgents.forEach((newAgentName, newAgentIp) -> {
             configuration.setPhases(Collections.singletonList(phases.get(newAgentName)));
             YamlDumpConfiguration dumpConfig = new YamlDumpConfiguration(configuration);
             String yamlTask = dumpConfig.generateConfigurationObject();
-            String URI = "http://" + newAgentIp + ":4567" + "/submitTask";
 
-            System.out.println("[task balancer] sending execution request + " + yamlTask + " to new agent " + newAgentName);
+            LOG.info("[redistribution] sending execution request + " + yamlTask + " to new agent " + newAgentName);
             Future<HttpResponse> future  =
-                    this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, this.asyncClient);
+                    this.httpUtils.sendAsyncHttpRequest(HttpUtils.getSubmissionTaskPath(newAgentIp), yamlTask, this.asyncClient);
             newRunningTasks.put(newAgentName, future);
 
         });
-    }
-
-    private Map<String, Future<HttpResponse>> requestRebalancing
-            (Phase phase, Map<String, Long> executionsPerTest,
-            ConcurrentHashMap<String, String> activeAgents,
-            Map<String, String> recentlyAddedAgents,
-            Configuration configuration, long phaseStartTime) throws CloneNotSupportedException {
-        // check if one agent failed to respond to heartbeat before TD execution started.
-        if (phase == null) {
-            return new HashMap<>();
-        }
-        // start by updating the number of tests that are left to be executed by the agents
-        updateCountPerTest(phase, executionsPerTest);
-
-        Map<String, Future<HttpResponse>> newRunningTasks = new HashMap<>();
-
-        System.out.println("[task balancer] calling split phase for rebalancing work...");
-        Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents.keySet()),
-                new ArrayList<>(recentlyAddedAgents.keySet()), phaseStartTime);
-
-        System.out.println("[rebalancing]Size of agents : " + activeAgents.keySet().size() + " " + activeAgents.keySet().toString());
-        sendInstructionsToOldAgents(phases, activeAgents);
-        sendExecutionQueriesToNewAgents(recentlyAddedAgents, phases, configuration, newRunningTasks);
 
         return newRunningTasks;
     }
 
-    private void excludeInactiveAgents(List<String> agentsToBeExcluded, ConcurrentHashMap<String, String> activeAgents,
-                                       DistributedPhaseMonitor phaseMonitor) {
-        System.out.println("[task balancer] agents to be excluded " + agentsToBeExcluded.toString());
-        agentsToBeExcluded.forEach(activeAgents::remove);
-        agentsToBeExcluded.forEach(this.inactiveAgents::remove);
+    private Map<String, Future<HttpResponse>> requestRebalancing
+            (DistributedPhaseInfo distributedPhaseInfo,
+            ConcurrentHashMap<String, String> activeAgents,
+            Map<String, String> recentlyAddedAgents,
+            Configuration configuration, long phaseStartTime) throws CloneNotSupportedException {
+        Phase phase = distributedPhaseInfo.getPhase();
 
-        /* the number of tests executed by the agents which are now excluded should not be taken into consideration in
-         * the future
-         */
-        agentsToBeExcluded.forEach(phaseMonitor::removeAgentFromExecutionsMap);
+        // check if one agent failed to respond to heartbeat before TD execution started.
+        if (phase == null) {
+            return new HashMap<>();
+        }
 
-        System.out.println("[task balancer] executions per test after excluding agents " +
-                phaseMonitor.getExecutionsPerTest().toString());
-        System.out.println("[task balancer] active agents after excluding agents " + activeAgents.toString());
+        // start by updating the number of tests that are left to be executed by the agents
+        distributedPhaseInfo.updateCountPerTest();
+        Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents.keySet()),
+                new ArrayList<>(recentlyAddedAgents.keySet()), phaseStartTime);
+
+        sendInstructionsToOldAgents(phases, activeAgents);
+        return sendExecutionQueriesToNewAgents(recentlyAddedAgents, phases, configuration);
 
     }
 
-    public Map<String, Future<HttpResponse>> rebalanceWork(DistributedPhaseMonitor phaseMonitor,
+    private void excludeInactiveAgents(List<String> agentsToBeExcluded, ConcurrentHashMap<String, String> activeAgents,
+                                       DistributedPhaseInfo distributedPhaseInfo) {
+        LOG.info("[redistribution] agents to be excluded " + agentsToBeExcluded.toString());
+        agentsToBeExcluded.forEach(activeAgents::remove);
+        agentsToBeExcluded.forEach(this.inactiveAgents::remove);
+        agentsToBeExcluded.forEach(distributedPhaseInfo::removeAgentFromExecutionsMap);
+    }
+
+    public Map<String, Future<HttpResponse>> rebalanceWork(DistributedPhaseInfo distributedPhaseInfo,
                                                            ConcurrentHashMap<String, String> activeAgents,
                                                            Configuration configuration,
                                                            K8SConfig k8SConfig, long phaseExecutionStartTime) {
@@ -199,34 +181,30 @@ public class TaskBalancer {
         Map<String, String> newAgents = new HashMap<>(recentlyAddedAgents);
         List<String> inactiveAgents = new ArrayList<>(this.inactiveAgents);
 
-        System.out.println("[Task Balancer] Inactive agents: " + inactiveAgents.toString());
-        Map<String, Long> executionsPerTest = phaseMonitor.getExecutionsPerTest();
-        System.out.println("[task balancer] executions per test " + executionsPerTest.toString());
         // remove all agents who failed answering the heartbeat request in the past
-
-        excludeInactiveAgents(inactiveAgents, activeAgents, phaseMonitor);
-        System.out.println("[Rebalance] Starting....");
+        excludeInactiveAgents(inactiveAgents, activeAgents, distributedPhaseInfo);
+        LOG.info("[Redistribution] Starting....");
 
         try {
-           newRunningTasks = requestRebalancing(phaseMonitor.getPhase(), executionsPerTest, activeAgents,
+           newRunningTasks = requestRebalancing(distributedPhaseInfo, activeAgents,
                    newAgents, configuration, phaseExecutionStartTime);
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
         }
 
-        phaseMonitor.resetExecutions();
-        System.out.println("[Rebalance] done rebalancing. Executions is " + phaseMonitor.getExecutionsPerTest().toString());
+        distributedPhaseInfo.resetExecutions();
+        LOG.info("[Redistribution] done redistributing the work");
+
         // mark recently added agents as active agents executing tasks
         activeAgents.putAll(newAgents);
         newAgents.forEach((key, value) -> this.recentlyAddedAgents.remove(key));
 
         if (this.state == RebalanceState.RESCHEDULED_REQUIRED) {
             this.state = RebalanceState.SCHEDULED;
-            System.out.println("[task balancer] delayed rebalance must be scheduled for new agents = " + this.recentlyAddedAgents.toString());
+            LOG.info("[driver] Delay redistribution process for agents " + this.recentlyAddedAgents.toString());
             this.rebalanceScheduler.schedule(() -> {
-                System.out.println("[task balancer] starting delayed rebalancing...");
-                System.out.println("[task balancer] seconds waited: " + k8SConfig.getRedistributionWaitTime());
-                return rebalanceWork(phaseMonitor, activeAgents, configuration, k8SConfig, phaseExecutionStartTime);
+                LOG.info("[Redistribution] starting delayed work redistribution process");
+                return rebalanceWork(distributedPhaseInfo, activeAgents, configuration, k8SConfig, phaseExecutionStartTime);
             }, k8SConfig.getRedistributionWaitTimeInSeconds(), TimeUnit.SECONDS);
         } else {
             this.state = RebalanceState.UNNECESSARY;

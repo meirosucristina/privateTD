@@ -56,7 +56,6 @@ public class CliParser implements ConfigurationParser {
     private static final String METRIC_CLASS_HELP_HEADER = PUBLISH_CLASS_HELP_HEADER;
     private static final String SUITE_HELP_HEADER = String.format("   %-40s %-40s   %s", "Suite", "Tags", "Description");
     private static Map<Integer, Map<String, ConfigArgSet>> availableGlobalArgs = new HashMap<>();
-    private static Map<Integer, Map<String, ConfigArgSet>> availableK8sConfigArgs = new HashMap<>();
     private static List<ParserArgHelp> parserArgHelps = new ArrayList<>();
 
 
@@ -90,7 +89,6 @@ public class CliParser implements ConfigurationParser {
     }
 
     static {
-        collectAvailableConfigurationOptions(K8SConfig.class, availableK8sConfigArgs);
         collectAvailableConfigurationOptions(GlobalArgs.class, availableGlobalArgs);
 
         for (Class parserClass : ReflectionsContainer.getSubTypesOf(ConfigurationParser.class)) {

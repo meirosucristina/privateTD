@@ -5,8 +5,9 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
-import com.adobe.qe.toughday.internal.core.k8s.DistributedPhaseMonitor;
-import com.adobe.qe.toughday.internal.core.k8s.HeartbeatTask;
+import com.adobe.qe.toughday.internal.core.k8s.DistributedPhaseInfo;
+import com.adobe.qe.toughday.internal.core.k8s.tasks.CheckAgentIsRunningToughdayTask;
+import com.adobe.qe.toughday.internal.core.k8s.tasks.HeartbeatTask;
 import com.adobe.qe.toughday.internal.core.k8s.HttpUtils;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.TaskBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.PhaseSplitter;
@@ -19,7 +20,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
@@ -46,7 +46,7 @@ public class Driver {
 
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
     private final HttpUtils httpUtils = new HttpUtils();
-    private DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
+    private DistributedPhaseInfo distributedPhaseInfo = new DistributedPhaseInfo();
     private Configuration configuration;
     private Configuration driverConfiguration;
     private List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks = new ArrayList<>();
@@ -93,7 +93,7 @@ public class Driver {
         for (Phase phase : configuration.getPhases()) {
             try {
                 Map<String, Phase> tasks = phaseSplitter.splitPhase(phase, new ArrayList<>(agents.keySet()));
-                this.distributedPhaseMonitor.setPhase(phase);
+                this.distributedPhaseInfo.setPhase(phase);
 
                 for (String agentName : agents.keySet()) {
                     configuration.setPhases(Collections.singletonList(tasks.get(agentName)));
@@ -104,17 +104,17 @@ public class Driver {
 
                     /* send query to agent and register running task */
                     String URI = HttpUtils.getSubmissionTaskPath(agents.get(agentName));
-                    this.distributedPhaseMonitor
+                    this.distributedPhaseInfo
                             .registerRunningTask(agentName, this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, asyncClient));
 
                     LOG.log(Level.INFO, "Task was submitted to agent " + agents.get(agentName));
                 }
 
                 // al execution queries were sent => set phase execution start time
-                this.distributedPhaseMonitor.setPhaseStartTime(System.currentTimeMillis());
+                this.distributedPhaseInfo.setPhaseStartTime(System.currentTimeMillis());
 
                 // we should wait until all agents complete the current tasks in order to execute phases sequentially
-                this.distributedPhaseMonitor.waitForPhaseCompletion();
+                this.distributedPhaseInfo.waitForPhaseCompletion();
 
                 LOG.log(Level.INFO, "Phase " + phase.getName() + " finished execution successfully.");
 
@@ -126,32 +126,17 @@ public class Driver {
 
     private void scheduleHeartbeatTask() {
         // we should periodically send heartbeat messages from driver to all the agents
-        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor,
+        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseInfo,
                         this.configuration, this.driverConfiguration),
                 0, this.driverConfiguration.getK8SConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
     }
 
-    private void scheduleRecentlyRegisteredAgentsMonitoringTask() {
+    private void scheduleAgentExecutionTrackerTask() {
         /* we should periodically check if recently added agents started executing tasks and
         we should monitor them.
          */
-        this.monitoringAgentsScheduler.scheduleAtFixedRate(() -> {
-            System.out.println("[driver - monitoring agents] Started...");
-            List<ScheduledFuture<Map<String, Future<HttpResponse>>>> finishedFutures = this.newRunningTasks.stream()
-                    .filter(Future::isDone)
-                    .collect(Collectors.toList());
-
-            finishedFutures.forEach(future -> {
-                System.out.println("[driver - monitoring agents] monitoring new running tasks has started...");
-                try {
-                    future.get().forEach(this.distributedPhaseMonitor::registerRunningTask);
-                    this.newRunningTasks.removeAll(finishedFutures);
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            });
-        }, 0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
-
+        this.monitoringAgentsScheduler.scheduleAtFixedRate(new CheckAgentIsRunningToughdayTask(this.newRunningTasks, this.distributedPhaseInfo),
+                0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
     }
 
     public void run() {
@@ -179,9 +164,9 @@ public class Driver {
             String agentName = AGENT_PREFIX_NAME + id.getAndIncrement();
 
             LOG.info("[driver] Registered agent " + agentName + "with ip " + agentIp);
-            if (!this.distributedPhaseMonitor.isPhaseExecuting()) {
+            if (!this.distributedPhaseInfo.isPhaseExecuting()) {
                 agents.put(agentName, agentIp);
-                LOG.debug("[driver] active agents " + agents.keySet());
+                LOG.info("[driver] active agents " + agents.keySet());
                 return "";
             }
 
@@ -189,21 +174,21 @@ public class Driver {
 
             if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
                 // work redistribution will be delayed until the current redistribution process is finished
-                LOG.debug("[driver] Delay redistribution process for agent " + agentName);
+                LOG.info("[driver] Delay redistribution process for agent " + agentName);
                 this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
                 this.taskBalancer.addNewAgent(agentName, agentIp);
 
             } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
                 this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
-                LOG.debug("[driver] Scheduling redistribution process to start in " +
+                LOG.info("[driver] Scheduling redistribution process to start in " +
                         configuration.getK8SConfig().getRedistributionWaitTimeInSeconds() + " seconds.");
 
                 // schedule redistribution process
                 ScheduledFuture<Map<String, Future<HttpResponse>>> scheduledFuture =
                         this.taskBalancer.getRebalanceScheduler().schedule(() -> taskBalancer.rebalanceWork(
-                                distributedPhaseMonitor,
+                                distributedPhaseInfo,
                                 agents, configuration, driverConfiguration.getK8SConfig(),
-                                distributedPhaseMonitor.getPhaseStartTime()),
+                                distributedPhaseInfo.getPhaseStartTime()),
                                 configuration.getK8SConfig().getRedistributionWaitTimeInSeconds(),
                                 TimeUnit.SECONDS);
                 newRunningTasks.add(scheduledFuture);
@@ -214,7 +199,7 @@ public class Driver {
 
         scheduleHeartbeatTask();
 
-        scheduleRecentlyRegisteredAgentsMonitoringTask();
+        scheduleAgentExecutionTrackerTask();
 
         /* wait for requests */
         while (true) { }

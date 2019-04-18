@@ -1,5 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.config.RequestConfig;
@@ -9,12 +10,15 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.concurrent.Future;
 
 public class HttpUtils {
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     public static final String URL_PREFIX = "http://";
     public static final String EXECUTION_PATH = "/config";
@@ -34,6 +38,10 @@ public class HttpUtils {
 
     public static String getHeartbeatPath(String agentIpAddress) {
         return URL_PREFIX + agentIpAddress + ":" + PORT + HEARTBEAT_PATH;
+    }
+
+    public static String getRebalancePath(String agentIp) {
+        return "http://" + agentIp + ":4567" + REBALANCE_PATH;
     }
 
     public Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
@@ -63,12 +71,10 @@ public class HttpUtils {
 
             // submit request and wait for ack from agent
             HttpResponse response = httpClient.execute(request);
-            System.out.println("Response code is " + response.getStatusLine().getStatusCode());
             return checkSuccessfulRequest(response.getStatusLine().getStatusCode());
 
         } catch (IOException e)  {
-            System.out.println("Http request could not be sent to  " + URI);
-            System.out.println(e.getMessage());
+            LOG.warn("Http request could not be sent to  " + URI + ". Received error " + e.getMessage());
         }
 
         return false;

@@ -1,6 +1,7 @@
 package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -12,7 +13,7 @@ import java.util.Map;
 
 public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad> {
 
-    protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeSplitter.class);
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     private ConstantLoad setParamsForDistributedRunMode(ConstantLoad runMode, int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,
@@ -68,8 +69,6 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
     @Override
     public Map<String, ConstantLoad> distributeRunModeForRebalancingWork(ConstantLoad runMode, List<String> oldAgents,
                                                                          List<String> newAgents, long phaseStartTime) {
-        System.out.println("[constant load run mode splitter] Distributing for rebalancing work...");
-
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
 
@@ -86,8 +85,8 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
         int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
                 * runMode.getRate() + runMode.getStart();
 
-        System.out.println("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
-        System.out.println("Estimated current load " + estimatedCurrentLoad);
+        LOG.info("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
+        LOG.info("Estimated current load " + estimatedCurrentLoad);
 
         // set start property for new agents
         newAgents.forEach(agentName -> taskRunModes.get(agentName)

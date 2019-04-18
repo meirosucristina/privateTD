@@ -1,6 +1,7 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.internal.core.config.ConfigParams;
+import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.GenerateYamlConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,22 +17,22 @@ public class ExecutionTrigger {
 
     protected static final Logger LOG = LogManager.getLogger(ExecutionTrigger.class);
 
-    private final ConfigParams configParams;
+    private final Configuration configuration;
     private final String executionPath;
 
-    public ExecutionTrigger(ConfigParams configParams) {
-        this.configParams = configParams;
+    public ExecutionTrigger(Configuration configuration) {
+        this.configuration = configuration;
         // sanity check
-        if (configParams.getK8sConfigParams().get("driverip") == null) {
+        if (configuration.getK8SConfig().getDriverIp() == null || configuration.getK8SConfig().getDriverIp().isEmpty()) {
             throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
                     " is required when running TD in distributed mode.");
         }
 
-        this.executionPath = "http://" + configParams.getK8sConfigParams().get("driverip") + ":80"  + "/config";
+        this.executionPath = "http://" + configuration.getK8SConfig().getDriverIp() + ":80"  + "/config";
     }
 
     public void triggerExecution() {
-        GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(configParams, new HashMap<>());
+        GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(this.configuration.getConfigParams(), new HashMap<>());
         String yamlConfig = generateYaml.createYamlStringRepresentation();
         System.out.println(yamlConfig);
         HttpUtils httpUtils = new HttpUtils();

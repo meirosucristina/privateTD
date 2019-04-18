@@ -67,14 +67,14 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
         List<AsyncTestWorker> workerList = new ArrayList<>(runMode.getRunContext().getTestWorkers());
 
         for (int i = 0; i < reduce; i++) {
-            LOG.debug("[Agent - redistribution] Finished test worker " + workerList.get(i).getWorkerThread().getId());
+            LOG.info("[Agent - redistribution] Finished test worker " + workerList.get(i).getWorkerThread().getId());
             runMode.finishAndDeleteWorker(workerList.get(i));
         }
     }
 
     private void increaseConcurrency(long increase, Normal runMode) {
         for (int i = 0; i < increase; i++) {
-            LOG.debug("[Agent - redistribution] Created a new test worker");
+            LOG.info("[Agent - redistribution] Created a new test worker");
             runMode.createAndExecuteWorker(runMode.getEngine(), runMode.getEngine().getCurrentPhase().getTestSuite());
         }
     }

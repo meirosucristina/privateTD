@@ -1,6 +1,7 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.internal.core.engine.Phase;
+import com.adobe.qe.toughday.internal.core.k8s.tasks.CheckPhaseCompletionTask;
 import org.apache.http.HttpResponse;
 
 import java.util.HashMap;
@@ -10,7 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-public class DistributedPhaseMonitor {
+public class DistributedPhaseInfo {
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
     private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
     // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
@@ -44,12 +45,24 @@ public class DistributedPhaseMonitor {
     }
 
     public void waitForPhaseCompletion() {
-        Future future = executorService.submit(new StatusCheckerWorker());
+        Future future = executorService.submit(new CheckPhaseCompletionTask(this.runningTasks));
         try {
             future.get();
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
+    }
+
+    public void updateCountPerTest() {
+        phase.getTestSuite().getTests().forEach(test -> {
+            long remained = test.getCount() - this.getExecutionsPerTest().get(test.getName());
+            if (remained < 0) {
+                // set this to 0 so that the agents will know to delete the test from the test suite
+                test.setCount("0");
+            } else {
+                test.setCount(String.valueOf(remained));
+            }
+        });
     }
 
     public Map<String, Map<String, Long>> getExecutions() {
@@ -72,26 +85,6 @@ public class DistributedPhaseMonitor {
 
     public void removeAgentFromExecutionsMap(String agentName) {
         this.executions.forEach((test, executionsPerAgent) -> this.executions.get(test).remove(agentName));
-    }
-
-    private class StatusCheckerWorker implements Runnable {
-        @Override
-        public synchronized void run() {
-            long size = runningTasks.keySet().size();
-
-            while (size > 0) {
-                size = runningTasks.entrySet().stream()
-                        .filter(entry -> !entry.getValue().isDone()).count();
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    // skip and continue
-                }
-            }
-
-            // reset map of running tasks
-            runningTasks.clear();
-        }
     }
 
     public Phase getPhase() {

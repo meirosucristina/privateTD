@@ -1,7 +1,10 @@
 package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     private Normal setParamsForDistributedRunMode(Normal runMode, int nrAgents, int rateRemainder,
                                                   int endRemainder, int startRemainder,
@@ -40,7 +44,6 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
                 }
             }
         } else {
-            /* we must distribute the concurrency level */
             clone.setConcurrency(String.valueOf(runMode.getConcurrency()/ nrAgents + concurrencyRemainder));
         }
 
@@ -83,15 +86,12 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
         int estimatedConcurrency = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
                 * runMode.getRate() + runMode.getStart();
 
-        System.out.println("Phase was executed for " + diff / 1000 + " seconds");
-        System.out.println("Estimated concurrency " + estimatedConcurrency);
+        LOG.info("Phase was executed for " + diff / 1000 + " seconds");
+        LOG.info("Estimated concurrency " + estimatedConcurrency);
 
         // set start property for new agents
-        newAgents.forEach(agentName -> {
-            taskRunModes.get(agentName).setStart(String.valueOf(estimatedConcurrency / agents.size()));
-            System.out.println("[Normal Run Mode Splitter] Setting start to " + estimatedConcurrency / agents.size() +
-                    " for agent " + agentName);
-        });
+        newAgents.forEach(agentName ->
+            taskRunModes.get(agentName).setStart(String.valueOf(estimatedConcurrency / agents.size())));
 
         // set desired active threads for old agents
         taskRunModes.get(oldAgents.get(0)).setConcurrency(String.valueOf(estimatedConcurrency / agents.size() +
