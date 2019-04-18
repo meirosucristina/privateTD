@@ -15,7 +15,7 @@ public class K8SConfig {
     private boolean k8sdriver = false;
     private String driverIp = null;
     private String heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
-    private String redistributioWaitTime = DEFAULT_REDISTRIBUTION_WAIT_TIME;
+    private String redistributionWaitTime = DEFAULT_REDISTRIBUTION_WAIT_TIME;
 
     @ConfigArgSet(required = false, desc = "The public ip address of the cluster. The driver" +
             " service must be accessible at this address. This property is required when running in distributed mode.")
@@ -60,18 +60,18 @@ public class K8SConfig {
     }
 
     @ConfigArgSet(required = false, defaultValue = DEFAULT_REDISTRIBUTION_WAIT_TIME, desc = "The minimum amount of time " +
-            " to wait before scheduling a redistribution.")
+            " to wait before scheduling work redistribution if required.")
     public void setRedistributionWaitTime(String redistributionWaitTime) {
-        this.redistributioWaitTime = redistributionWaitTime;
+        this.redistributionWaitTime = redistributionWaitTime;
     }
 
     @ConfigArgGet
-    public String getRedistributioWaitTime() {
-        return this.redistributioWaitTime;
+    public String getRedistributionWaitTime() {
+        return this.redistributionWaitTime;
     }
 
     public long getRedistributionWaitTimeInSeconds() {
-        return GlobalArgs.parseDurationToSeconds(this.redistributioWaitTime);
+        return GlobalArgs.parseDurationToSeconds(this.redistributionWaitTime);
     }
 
     public long getHeartbeatIntervalInSeconds() {
@@ -80,6 +80,6 @@ public class K8SConfig {
 
     public void merge(K8SConfig other) {
         this.setHeartbeatInterval(other.getHeartbeatInterval());
-        this.setRedistributionWaitTime(other.redistributioWaitTime);
+        this.setRedistributionWaitTime(other.redistributionWaitTime);
     }
 }

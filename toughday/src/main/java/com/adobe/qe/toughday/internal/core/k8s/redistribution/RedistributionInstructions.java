@@ -5,14 +5,14 @@ import java.util.Map;
 /** Contains all the information needed by the agents for updating their configuration when
  * the work needs to be rebalanced.
  */
-public class RebalanceInstructions {
+public class RedistributionInstructions {
     private Map<String, Long> counts;
     private Map<String, String> runModeProperties;
 
     // dummy constructor, required for Jackson
-    public RebalanceInstructions() { }
+    public RedistributionInstructions() { }
 
-    public RebalanceInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {
+    public RedistributionInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {
         this.counts = counts;
         this.runModeProperties = runModeProperties;
     }

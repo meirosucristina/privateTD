@@ -1,7 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
-import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -11,7 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ConstantLoadRunModeSplitter implements RunMode.RunModeSplitter<ConstantLoad> {
+public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad> {
 
     protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeSplitter.class);
 

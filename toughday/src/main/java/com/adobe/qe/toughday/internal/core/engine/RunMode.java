@@ -13,10 +13,9 @@ package com.adobe.qe.toughday.internal.core.engine;
 
 import com.adobe.qe.toughday.api.core.RunMap;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
 
 import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
 public interface RunMode {
@@ -31,11 +30,5 @@ public interface RunMode {
         Collection<AsyncTestWorker> getTestWorkers();
         Collection<RunMap> getRunMaps();
         boolean isRunFinished();
-    }
-
-    interface RunModeSplitter<T extends RunMode> extends Cloneable {
-        Map<String, T> distributeRunMode(T runMode, List<String> agents);
-        Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents,
-                                                           long phaseStartTime);
     }
 }

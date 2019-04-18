@@ -3,8 +3,11 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RedistributionInstructions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
@@ -12,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunModeBalancer<T> {
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     @Override
     public Map<String, String> getRunModePropertiesToRedistribute(Class type, T object) {
@@ -39,34 +43,29 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
     }
 
     @Override
-    public void processRunModeInstructions(RebalanceInstructions rebalanceInstructions, T runMode) {
-        if (rebalanceInstructions == null || runMode == null) {
+    public void processRunModeInstructions(RedistributionInstructions redistributionInstructions, T runMode) {
+        if (redistributionInstructions == null || runMode == null) {
             throw new IllegalArgumentException("Rebalance instructions and run mode must not be null.");
         }
 
-        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
+        Map<String, String> runModeProperties = redistributionInstructions.getRunModeProperties();
         if (runModeProperties == null || runModeProperties.isEmpty()) {
             return;
         }
 
-        System.out.println("[AbstractRunModeBalancer] changing values for properties...");
         Arrays.stream(runMode.getClass().getDeclaredMethods())
                 .filter(method -> runModeProperties.containsKey(Configuration.propertyFromMethod(method.getName())))
                 .filter(method -> method.isAnnotationPresent(ConfigArgSet.class))
                 .forEach(method -> {
                     String property = Configuration.propertyFromMethod(method.getName());
+                    LOG.info("[Agent] Setting property " + property + " to " + runModeProperties.get(property));
 
-                    if (runModeProperties.containsKey(property)) {
-                        System.out.println("[rebalance request] Setting property " + property + " to " + runModeProperties.get(property));
-
-                        try {
-                            method.invoke(runMode, runModeProperties.get(property));
-                        } catch (IllegalAccessException | InvocationTargetException e) {
-                            e.printStackTrace();
-                        }
-                    } else {
-                        System.out.println("key " + property + "not found");
+                    try {
+                        method.invoke(runMode, runModeProperties.get(property));
+                    } catch (IllegalAccessException | InvocationTargetException e) {
+                        LOG.warn("[Agent] Property " + property + " could not be set to " + runModeProperties.get(property));
                     }
+
                 });
     }
 }

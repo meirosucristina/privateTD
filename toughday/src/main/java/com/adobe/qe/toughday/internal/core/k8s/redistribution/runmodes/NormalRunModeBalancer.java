@@ -2,27 +2,63 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes;
 
 import com.adobe.qe.toughday.internal.core.engine.AsyncEngineWorker;
 import com.adobe.qe.toughday.internal.core.engine.AsyncTestWorker;
+import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RedistributionInstructions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
+
+    @Override
+    public void before(RedistributionInstructions redistributionInstructions, Normal runMode) {
+        if (runMode.isVariableConcurrency()) {
+            /* We must cancel the scheduled task for updating concurrency and reschedule it with the new values
+             * for interval and initial delay.
+             */
+            boolean cancelled = runMode.cancelPeriodicTask();
+            if (!cancelled) {
+                LOG.warn("Periodic task for updating the number of threads could not be cancelled. Normal run mode" +
+                        " properties might not be respected.");
+            }
+        }
+
+        Map<String, String> runModeProperties = redistributionInstructions.getRunModeProperties();
+        runModeProperties.forEach((propertyName, propValue) -> this.beforeChangingValueOfProperty(propertyName, propValue, runMode));
+    }
+
+    private void beforeChangingValueOfProperty(String property, String newValue, Normal runMode) {
+        if (property.equals("concurrency")) {
+            long currentConcurrency = runMode.isVariableConcurrency() ? runMode.getActiveThreads() :
+                    runMode.getConcurrency();
+            long newConcurrency = Long.parseLong(newValue);
+            long difference = currentConcurrency - newConcurrency;
+
+            if (difference > 0) {
+                reduceConcurrency(difference, runMode);
+            } else {
+                increaseConcurrency(Math.abs(difference), runMode);
+            }
+
+            concurrencySanityChecks(runMode, newConcurrency);
+        }
+    }
 
     private void concurrencySanityChecks(Normal runMode, long newConcurrency) {
         // check that we have the exact number of active test workers
         if (runMode.getRunContext().getTestWorkers().size() != newConcurrency) {
-            System.out.println("[rebalance processor - concurrency sanity checks] TestWorkers size is "
-                    + runMode.getRunContext().getTestWorkers().size() + " but" + " new value for concurrency is " + newConcurrency);
-            throw new IllegalStateException("[rebalance processor - concurrency sanity checks] TestWorkers size is "
+            throw new IllegalStateException("[redistribution] TestWorkers size is "
                     + runMode.getRunContext().getTestWorkers().size() + " but" + " new value for concurrency is " + newConcurrency);
         }
 
         // check that all test workers are active
         if (runMode.getRunContext().getTestWorkers().stream().anyMatch(AsyncEngineWorker::isFinished)) {
-            throw new IllegalStateException("[rebalance processor - concurrency sanity checks] " +
+            throw new IllegalStateException("[redistribution] " +
                     "There are finished test workers in the list of active workers.");
         }
     }
@@ -31,84 +67,24 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
         List<AsyncTestWorker> workerList = new ArrayList<>(runMode.getRunContext().getTestWorkers());
 
         for (int i = 0; i < reduce; i++) {
-            System.out.println("[rebalance processor] Finished test worker " + workerList.get(0).getWorkerThread().getId());
+            LOG.debug("[Agent - redistribution] Finished test worker " + workerList.get(i).getWorkerThread().getId());
             runMode.finishAndDeleteWorker(workerList.get(i));
         }
     }
 
     private void increaseConcurrency(long increase, Normal runMode) {
         for (int i = 0; i < increase; i++) {
-            System.out.println("[rebalance processor] Creating a new test worker...");
+            LOG.debug("[Agent - redistribution] Created a new test worker");
             runMode.createAndExecuteWorker(runMode.getEngine(), runMode.getEngine().getCurrentPhase().getTestSuite());
         }
     }
 
-    private void processPropertyChange(String property, String newValue, Normal runMode) {
-        if (property.equals("concurrency")) {
-
-            System.out.println("[rebalance processor] Processing concurrency change");
-            long currentConcurrency;
-            if (runMode.isVariableConcurrency()) {
-                currentConcurrency = runMode.getActiveThreads();
-            } else {
-                currentConcurrency = runMode.getConcurrency();
-            }
-
-            long newConcurrency = Long.parseLong(newValue);
-            long difference = currentConcurrency - newConcurrency;
-
-            System.out.println("[rebalance processor] currenct concurrency: " + currentConcurrency + "; new concurrency +" +
-                    newConcurrency);
-
-            System.out.println("[rebalance processsor] concurrency difference is " + difference);
-
-            if (difference > 0) {
-                // kill some test workers
-                reduceConcurrency(difference, runMode);
-            } else {
-                // create a few more test workers
-                increaseConcurrency(Math.abs(difference), runMode);
-            }
-
-            System.out.println("[rebalance processor] Test workers size: " + runMode.getRunContext().getTestWorkers().size());
-            concurrencySanityChecks(runMode, newConcurrency);
-
-            System.out.println("[rebalance processor] Successfully updated the state to respect the new value of concurrency.");
-        }
-    }
-
-
     @Override
-    public void before(RebalanceInstructions rebalanceInstructions, Normal runMode) {
-        System.out.println("[normal run mode balancer] - before...");
-        if (runMode.isVariableConcurrency()) {
-            /* We must cancel the scheduled task and reschedule it with the new values for 'period' and
-             * initial delay.
-             */
-            boolean cancelled = runMode.cancelPeriodicTask();
-            if (!cancelled) {
-                System.out.println("[normal run mode balancer] task could not be cancelled.");
-                return;
-            }
-
-            System.out.println("[normal run mode balancer] successfully cancelled task.");
-        }
-
-        Map<String, String> runModeProperties = rebalanceInstructions.getRunModeProperties();
-        runModeProperties.forEach((propertyName, propValue) -> this.processPropertyChange(propertyName, propValue, runMode));
-    }
-
-    @Override
-    public void after(RebalanceInstructions rebalanceInstructions, Normal runMode) {
-        // TODO: should we wait for all the agents to confirm the interruption on the scheduled task?
-        // reschedule the task
+    public void after(RedistributionInstructions redistributionInstructions, Normal runMode) {
         if (runMode.isVariableConcurrency()) {
             runMode.schedulePeriodicTask();
-
-            System.out.println("[normal run mode balancer] successfully rescheduled ramping task " +
-                    "with interval " + runMode.getInterval() + " and initial delay "
-                    + runMode.getInitialDelay());
+            LOG.info("Rescheduled task for updating the number of worker threads with interval " +
+                    runMode.getInterval() + " and initial delay " + runMode.getInitialDelay());
         }
-
     }
 }

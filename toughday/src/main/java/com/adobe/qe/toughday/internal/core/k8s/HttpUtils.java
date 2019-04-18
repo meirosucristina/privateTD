@@ -22,7 +22,19 @@ public class HttpUtils {
     public static final String SUBMIT_TASK_PATH = "/submitTask";
     public static final String AGENT_PREFIX_NAME = "Agent";
     public static final String REBALANCE_PATH = "/rebalance";
+    private static final String PORT = "4567";
 
+    public static String getAgentRegisterPath() {
+        return "http://driver:80/registerAgent";
+    }
+
+    public static String getSubmissionTaskPath(String agentIpAdress) {
+        return URL_PREFIX + agentIpAdress + ":" + PORT + SUBMIT_TASK_PATH;
+    }
+
+    public static String getHeartbeatPath(String agentIpAddress) {
+        return URL_PREFIX + agentIpAddress + ":" + PORT + HEARTBEAT_PATH;
+    }
 
     public Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
                                                      CloseableHttpAsyncClient asyncClient) {

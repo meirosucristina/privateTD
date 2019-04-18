@@ -15,12 +15,12 @@ import java.lang.reflect.Method;
 import java.util.*;
 
 /**
- * This class should only be used for dumping a task(therefore a Configuration object) in order to send it
+ * This class should only be used for dumping a Configuration object in order to send it
  * to the agents in the K8S cluster as an HTTP query. This class assumes that it is not necessary to dump
  * the run mode and the publish mode fields of the Configuration class since each Phase described by this
  * configuration already defines those parameters.
  *
- * It also assumes that this only action to be taken into consideration when dumping the configuration is
+ * It also assumes that the only action to be taken into consideration when dumping the configuration is
  * Actions.ADD since all the other actions were already processed before sending the execution query to
  * the driver.
  */
@@ -135,7 +135,7 @@ public class YamlDumpConfiguration {
     }
 
     /**
-     * Dumps the configurations received as a parameter in the constructor as yaml String.
+     * Dumps the configuration received in the constructor as yaml String.
      * @return
      */
     public String generateConfigurationObject() {

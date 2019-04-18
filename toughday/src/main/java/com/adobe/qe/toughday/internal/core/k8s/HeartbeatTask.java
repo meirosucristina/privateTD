@@ -10,19 +10,14 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-
-import static com.adobe.qe.toughday.internal.core.k8s.HttpUtils.HEARTBEAT_PATH;
-import static com.adobe.qe.toughday.internal.core.k8s.HttpUtils.URL_PREFIX;
 
 public class HeartbeatTask implements Runnable {
     protected static final Logger LOG = LogManager.getLogger(Driver.class);
-    private static final String PORT = "4567";
 
     private final ConcurrentHashMap<String, String> agents;
     private DistributedPhaseMonitor phaseMonitor;
@@ -40,102 +35,73 @@ public class HeartbeatTask implements Runnable {
         this.driverConfiguration = driverConfiguration;
     }
 
-    private void processHeartbeatResponse(String agentName, HttpResponse agentResponse) {
-        if (agentResponse == null) {
+    private void processHeartbeatResponse(String agentName, HttpResponse agentResponse) throws IOException {
+        // the agent has sent his statistic for executions/test => aggregate counts
+        Gson gson = new Gson();
+        String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
+
+        // gson treats numbers as double values by default
+        Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
+        LOG.debug("[heartbeat] Received execution state from agent " + agentName +
+                "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
+
+        // recently added agents might not execute tests yet
+        if (doubleAgentCounts.isEmpty()) {
             return;
         }
 
-        try {
-            // the agent has sent his statistic for executions/test => aggregate counts
-            Gson gson = new Gson();
-            String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
-
-            // gson treats numbers as double values by default
-            Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
-            System.out.println("[Heartbeat task] Received from agent " + agentName + "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
-
-            // recently added agents might not execute tests yet
-            if (doubleAgentCounts.isEmpty()) {
-                return;
-            }
-
-            this.phaseMonitor.getExecutions().forEach((testName, executionsPerAgent) ->
-                    executionsPerAgent.put(agentName, doubleAgentCounts.get(testName).longValue()));
-
-        } catch (Exception e) {
-            System.out.println("[heartbeat] Failed to process heartbeat response from agent " + agentName + ". " +
-                    "Error message: "  + e.getMessage());
-        }
+        this.phaseMonitor.getExecutions().forEach((testName, executionsPerAgent) ->
+                executionsPerAgent.put(agentName, doubleAgentCounts.get(testName).longValue()));
     }
 
     @Override
     public void run() {
         Map<String, String> activeAgents = new HashMap<>(agents);
+        // remove agents which previously failed to respond to heartbeat request
         this.taskBalancer.getInactiveAgents().forEach(activeAgents::remove);
 
-        System.out.println("[heartbeat task] active agents " + activeAgents.keySet().toString());
-        System.out.println("[heartbeat task] Inactive agents is " + this.taskBalancer.getInactiveAgents().toString());
+        for (String agentName : activeAgents.keySet()) {
+            String ipAddress = agents.get(agentName);
 
-        try {
-            for (String agentName : activeAgents.keySet()) {
-                String ipAddress = agents.get(agentName);
-                String URI = URL_PREFIX + ipAddress + ":" + PORT + HEARTBEAT_PATH;
-
-                HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
-                processHeartbeatResponse(agentName, agentResponse);
-
-                if (agentResponse == null) {
-                    LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
-                    System.out.println("Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
-
-                    if (!this.phaseMonitor.isPhaseExecuting()) {
-                        agents.remove(agentName);
-                        continue;
-                    }
-
-                    this.taskBalancer.addInactiveAgent(agentName);
-
-                    if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
-                        /* delay redistribution of tasks. Redistribution will be triggered after the current one is
-                         * finished
-                         **/
-                        System.out.println("[heartbeat task] Agent " + agentName + "(" + agents.get(agentName) + ") is no longer " +
-                                " available. Delayed redistribution process will exclude this agent.");
-                        this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
-                        //this.taskBalancer.addInactiveAgent(agentName);
-                        continue;
-                    } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
-                        // TODO: schedule rabalance right now
-                        this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
-                        System.out.println("[heartbeat task] Scheduling rebalance process to start in 3 seconds...");
-
-                        // we should no longer send heartbeat requests to this agent
-                        // agents.remove(agentName);
-                        System.out.println("[heartbeat task] " + agentName + " was removed from agents.");
-
-                        // schedule rebalance process
-                        ScheduledFuture<Map<String, Future<HttpResponse>>> scheduledFuture =
-                                this.taskBalancer.getRebalanceScheduler()
-                                        .schedule(() -> taskBalancer.rebalanceWork(this.phaseMonitor, this.agents, this.configuration,
-                                                    this.driverConfiguration.getK8SConfig(), this.phaseMonitor.getPhaseStartTime()),
-                                                this.driverConfiguration.getK8SConfig().getRedistributionWaitTimeInSeconds(),
-                                                TimeUnit.SECONDS);
-
-                        System.out.println("[hearbeat task] Scheduled ack...");
-                    }
-
-                    // TODO: change this when the new pod is able to resume the task
-                    System.out.println("Removing agent " + agentName + " from map of executions. ");
-                    this.phaseMonitor.removeRunningTask(agentName);
+            String URI = HttpUtils.getHeartbeatPath(ipAddress);
+            HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
+            if (agentResponse != null) {
+                try {
+                    processHeartbeatResponse(agentName, agentResponse);
+                } catch (IOException e) {
+                    // skip this for now.
                 }
+                continue;
             }
 
-            System.out.println("[heartbeat] Total nr of executions " + this.phaseMonitor.getExecutionsPerTest().toString());
+            LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
+            if (!this.phaseMonitor.isPhaseExecuting()) {
+                agents.remove(agentName);
+                continue;
+            }
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            // TODO: announce driver that heartbeat task must be rescheduled
-            System.out.println("[heartbeat task] error: " + e.getMessage());
+            this.taskBalancer.addInactiveAgent(agentName);
+            // we should not wait for task completion since the agent running it left the cluster
+            this.phaseMonitor.removeRunningTask(agentName);
+
+            if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
+                LOG.info("[Driver] Redistribution will be triggered again after the current one is finished because " +
+                        "agent" + agentName + "(" + agents.get(agentName) + ") became unavailable." );
+                this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
+
+            } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
+                this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
+                System.out.println("[Driver] Scheduling work redistribution process to start in " +
+                        this.driverConfiguration.getK8SConfig().getRedistributionWaitTimeInSeconds() + "seconds.");
+
+                this.taskBalancer.getRebalanceScheduler()
+                        .schedule(() -> taskBalancer.rebalanceWork(this.phaseMonitor, this.agents, this.configuration,
+                                    this.driverConfiguration.getK8SConfig(), this.phaseMonitor.getPhaseStartTime()),
+                                this.driverConfiguration.getK8SConfig().getRedistributionWaitTimeInSeconds(),
+                                TimeUnit.SECONDS);
+            }
         }
+
+        LOG.info("[driver] Number of executions per test: " + this.phaseMonitor.getExecutionsPerTest());
     }
 }

@@ -1,7 +1,7 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.RebalanceInstructions;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.RedistributionInstructions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.junit.Assert;
@@ -41,14 +41,14 @@ public class AbstractRunModeBalancerTest {
     @Test
     public void testNewValuesAreAssignedForAllRunModeProperties() {
         DummyRunMode dummyRunMode = new DummyRunMode();
-        RebalanceInstructions rebalanceInstructions = new RebalanceInstructions();
+        RedistributionInstructions redistributionInstructions = new RedistributionInstructions();
 
         Map<String, String> runModeChanges = new HashMap<>();
         runModeChanges.put("property1", "prop1_new");
         runModeChanges.put("property2", "prop2_new");
 
-        rebalanceInstructions.setRunModeProperties(runModeChanges);
-        dummyRunMode.getRunModeBalancer().processRunModeInstructions(rebalanceInstructions, dummyRunMode);
+        redistributionInstructions.setRunModeProperties(runModeChanges);
+        dummyRunMode.getRunModeBalancer().processRunModeInstructions(redistributionInstructions, dummyRunMode);
 
         Assert.assertEquals("prop1_new", dummyRunMode.getProperty1());
         Assert.assertEquals("prop2_new", dummyRunMode.getProperty2());

@@ -1,7 +1,6 @@
 package com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes;
 
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
-import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.Normal;
 
 import java.util.ArrayList;
@@ -9,7 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class NormalRunModeSplitter implements RunMode.RunModeSplitter<Normal> {
+public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
 
     private Normal setParamsForDistributedRunMode(Normal runMode, int nrAgents, int rateRemainder,
                                                   int endRemainder, int startRemainder,
@@ -71,17 +70,12 @@ public class NormalRunModeSplitter implements RunMode.RunModeSplitter<Normal> {
                                                                    List<String> newAgents, long phaseStartTime) {
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
-
-        System.out.println("[Normal Run Mode Splitter] Splitter for rebalancing work was called.");
-
         Map<String, Normal> taskRunModes = distributeRunMode(runMode, agents);
 
-        System.out.println("[Normal Run Mode Splitter] New agents is " + newAgents.toString());
         // set start property to 'rate' for each new agent
         if (!runMode.isVariableConcurrency()) {
             return taskRunModes;
         }
-
 
         // compute the expected current concurrency
         long endTime = System.currentTimeMillis();

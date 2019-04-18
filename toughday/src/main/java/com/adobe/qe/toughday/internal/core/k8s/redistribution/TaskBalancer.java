@@ -115,9 +115,9 @@ public class TaskBalancer {
                 Map<String, String> runModeProperties = runMode.getRunModeBalancer()
                         .getRunModePropertiesToRedistribute(runMode.getClass(), runMode);
 
-                RebalanceInstructions rebalanceInstructions = new RebalanceInstructions(testSuiteProperties, runModeProperties);
+                RedistributionInstructions redistributionInstructions = new RedistributionInstructions(testSuiteProperties, runModeProperties);
                 try {
-                    String instructionMessage = mapper.writeValueAsString(rebalanceInstructions);
+                    String instructionMessage = mapper.writeValueAsString(redistributionInstructions);
                     System.out.println("[rebalancing] Sending " + instructionMessage + " to agent " + agentName + ". Ip: " + entry.getValue());
 
                     this.httpUtils.sendSyncHttpRequest(instructionMessage, agentURI);
@@ -225,7 +225,7 @@ public class TaskBalancer {
             System.out.println("[task balancer] delayed rebalance must be scheduled for new agents = " + this.recentlyAddedAgents.toString());
             this.rebalanceScheduler.schedule(() -> {
                 System.out.println("[task balancer] starting delayed rebalancing...");
-                System.out.println("[task balancer] seconds waited: " + k8SConfig.getRedistributioWaitTime());
+                System.out.println("[task balancer] seconds waited: " + k8SConfig.getRedistributionWaitTime());
                 return rebalanceWork(phaseMonitor, activeAgents, configuration, k8SConfig, phaseExecutionStartTime);
             }, k8SConfig.getRedistributionWaitTimeInSeconds(), TimeUnit.SECONDS);
         } else {

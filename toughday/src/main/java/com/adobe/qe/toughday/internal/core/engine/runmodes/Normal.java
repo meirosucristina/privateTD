@@ -22,6 +22,7 @@ import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBa
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.NormalRunModeBalancer;
 import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeSplitter;
 
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

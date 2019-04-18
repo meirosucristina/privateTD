@@ -3,7 +3,10 @@ package com.adobe.qe.toughday.internal.core.k8s.redistribution;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
+import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.ConstantLoadRunModeBalancer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import spark.Request;
 
 import java.io.IOException;
@@ -13,7 +16,9 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  *
  */
-public class RebalanceRequestProcessor {
+public class RedistributionRequestProcessor {
+    protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeBalancer.class);
+
     private void processTestSuiteChanges(Map<String, Long> counts, Phase phase) {
         TestSuite testSuite = phase.getTestSuite();
         long nr = testSuite.getTests().stream()
@@ -36,34 +41,27 @@ public class RebalanceRequestProcessor {
                         // update number of executions left for this test
                         test.setCount(String.valueOf(counts.get(test.getName())));
                     }
-
-                    System.out.println("[rebalance processor] Setting count for test " + test.getName() + " to value: " + counts.get(test.getName()));
                 });
-
-        System.out.println("[rebalance processor] new phase counts is " + phase.getCounts().toString());
     }
 
-    private void processRunModeChanges(RebalanceInstructions rebalanceInstructions, RunMode runMode) {
-        System.out.println("[rebalance request processor] processing run mode changes...");
-        runMode.getRunModeBalancer().before(rebalanceInstructions, runMode);
+    private void processRunModeChanges(RedistributionInstructions redistributionInstructions, RunMode runMode) {
+        runMode.getRunModeBalancer().before(redistributionInstructions, runMode);
 
-        runMode.getRunModeBalancer().processRunModeInstructions(rebalanceInstructions, runMode);
+        runMode.getRunModeBalancer().processRunModeInstructions(redistributionInstructions, runMode);
 
-        runMode.getRunModeBalancer().after(rebalanceInstructions, runMode);
+        runMode.getRunModeBalancer().after(redistributionInstructions, runMode);
     }
 
     public void processRequest(Request request, Phase phase) throws IOException {
         String jsonContent = request.body();
         ObjectMapper objectMapper = new ObjectMapper();
 
-        System.out.println("[rebalance processor] Starting...");
-        RebalanceInstructions rebalanceInstructions =
-                objectMapper.readValue(jsonContent, RebalanceInstructions.class);
+        LOG.info("[Agent] Started processing rebalance instructions");
+        RedistributionInstructions redistributionInstructions =
+                objectMapper.readValue(jsonContent, RedistributionInstructions.class);
 
         // update values for each modified property
-        processRunModeChanges(rebalanceInstructions, phase.getRunMode());
-        System.out.println("[rebalance processor] Updated run mode properties.");
-        processTestSuiteChanges(rebalanceInstructions.getCounts(), phase);
-        System.out.println("[rebalance processor] Updated test suite properties.");
+        processRunModeChanges(redistributionInstructions, phase.getRunMode());
+        processTestSuiteChanges(redistributionInstructions.getCounts(), phase);
     }
 }

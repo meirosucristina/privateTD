@@ -5,6 +5,7 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
 
 import java.util.concurrent.ExecutorService;
 
