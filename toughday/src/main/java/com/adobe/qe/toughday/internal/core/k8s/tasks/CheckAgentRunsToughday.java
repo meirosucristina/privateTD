@@ -10,12 +10,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.stream.Collectors;
 
-public class CheckAgentIsRunningToughdayTask implements Runnable {
+public class CheckAgentRunsToughday implements Runnable {
     private final List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks;
     private final DistributedPhaseInfo distributedPhaseInfo;
 
-    public CheckAgentIsRunningToughdayTask(List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks,
-                                           DistributedPhaseInfo distributedPhaseInfo) {
+    public CheckAgentRunsToughday(List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks,
+                                  DistributedPhaseInfo distributedPhaseInfo) {
         this.newRunningTasks = newRunningTasks;
         this.distributedPhaseInfo = distributedPhaseInfo;
     }

@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Class responsible for dividing phases into multiple tasks to be distributed between the
+ * Class responsible for partioning phases into multiple tasks to be distributed between the
  * agents running in the K8s cluster.
  */
 public class PhaseSplitter {
@@ -66,8 +66,8 @@ public class PhaseSplitter {
     }
 
     /**
-     * Knows how to divide a phase into a number of tasks equal to the number of agents running in the cluster.
-     * @param phase the phase to be divided into tasks.
+     * Knows how to divide a phase into a number of phases equal to the number of agents running in the cluster.
+     * @param phase the phase to be divided into phases.
      * @param agents list with all the agents able to receive a task and to execute it.
      * @throws CloneNotSupportedException if the phase is not cloneable.
      */

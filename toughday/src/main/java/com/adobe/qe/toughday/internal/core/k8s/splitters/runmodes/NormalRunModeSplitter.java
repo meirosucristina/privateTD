@@ -11,6 +11,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Knows how to split the normal run mode into multiple normal run modes to be distributed to the agents
+ * running in the cluster.
+ */
 public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
@@ -53,6 +57,10 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
 
     @Override
     public Map<String, Normal> distributeRunMode(Normal runMode, List<String> agents) {
+        if (runMode == null) {
+            throw new IllegalArgumentException("Run mode must not be null.");
+        }
+
         Map<String, Normal> taskRunModes = new HashMap<>();
         int nrAgents = agents.size();
 
@@ -71,6 +79,10 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
     @Override
     public Map<String, Normal> distributeRunModeForRebalancingWork(Normal runMode, List<String> oldAgents,
                                                                    List<String> newAgents, long phaseStartTime) {
+        if (runMode == null) {
+            throw new IllegalArgumentException("Run mode must not be null.");
+        }
+
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
         Map<String, Normal> taskRunModes = distributeRunMode(runMode, agents);

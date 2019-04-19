@@ -59,6 +59,7 @@ public class Main {
             if (configuration.getK8SConfig().getK8sAgent()) {
                 Agent agent = new Agent();
                 agent.start();
+                System.exit(0);
             }
 
             if (configuration.getK8SConfig().getK8sdriver()) {

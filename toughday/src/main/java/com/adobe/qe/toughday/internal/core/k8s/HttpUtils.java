@@ -26,6 +26,8 @@ public class HttpUtils {
     public static final String SUBMIT_TASK_PATH = "/submitTask";
     public static final String AGENT_PREFIX_NAME = "Agent";
     public static final String REBALANCE_PATH = "/rebalance";
+    public static final String FINISH_PATH = "/finish";
+    public static final String HEALTH_PATH = "/health";
     private static final String PORT = "4567";
 
     public static String getAgentRegisterPath() {
@@ -38,6 +40,10 @@ public class HttpUtils {
 
     public static String getHeartbeatPath(String agentIpAddress) {
         return URL_PREFIX + agentIpAddress + ":" + PORT + HEARTBEAT_PATH;
+    }
+
+    public static String getFinishPath(String agentItAddress) {
+        return URL_PREFIX + agentItAddress + ":" + PORT + FINISH_PATH;
     }
 
     public static String getRebalancePath(String agentIp) {

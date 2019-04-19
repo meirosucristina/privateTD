@@ -11,6 +11,7 @@ import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import spark.Spark;
 
 import java.net.*;
 import java.util.HashMap;
@@ -32,6 +33,7 @@ public class Agent {
     private String ipAddress = "";
     private final RedistributionRequestProcessor redistributionRequestProcessor = new RedistributionRequestProcessor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
+    private volatile boolean finished = false;
 
     public void start() {
         asyncClient.start();
@@ -44,6 +46,8 @@ public class Agent {
         }
 
         register();
+
+
 
         post(SUBMIT_TASK_PATH, ((request, response) ->  {
             LOG.info("[Agent] Received execution request");
@@ -83,21 +87,26 @@ public class Agent {
 
             String instructionsMessage = request.body();
             LOG.info("[Agent] Received " + instructionsMessage  + " from driver");
-            //System.out.println("[rebalancing - agent] Received " + instructionsMessage + " from driver");
             this.redistributionRequestProcessor.processRequest(request, this.engine.getCurrentPhase());
 
             return "";
         })));
 
 
-        get("/health", ((request, response) -> "Healthy"));
+        get(HEALTH_PATH, ((request, response) -> "Healthy"));
+
+        post(FINISH_PATH, ((request, response) -> {
+            LOG.info("Finished work");
+            this.finished = true;
+            return "";
+        }));
 
         // wait for requests
-        while (true) {}
+        while (!finished) {}
     }
 
     /**
-     * Method responsible for registering the current agent to the driver. Should be the
+     * Method responsible for registering the current agent to the driver. It should be the
      * first method executed.
      * It might take a while for the driver to send a response to the agent(in case redistribution is
      * executing) so the request should be asynchronous.

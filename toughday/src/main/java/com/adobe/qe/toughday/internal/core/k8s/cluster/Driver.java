@@ -6,7 +6,7 @@ import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfigura
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.k8s.DistributedPhaseInfo;
-import com.adobe.qe.toughday.internal.core.k8s.tasks.CheckAgentIsRunningToughdayTask;
+import com.adobe.qe.toughday.internal.core.k8s.tasks.CheckAgentRunsToughday;
 import com.adobe.qe.toughday.internal.core.k8s.tasks.HeartbeatTask;
 import com.adobe.qe.toughday.internal.core.k8s.HttpUtils;
 import com.adobe.qe.toughday.internal.core.k8s.redistribution.TaskBalancer;
@@ -39,17 +39,17 @@ public class Driver {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
     private static final AtomicInteger id = new AtomicInteger(0);
 
-    private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService monitoringAgentsScheduler = Executors.newSingleThreadScheduledExecutor();
     private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
-
-    private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
     private final HttpUtils httpUtils = new HttpUtils();
+
+    private final ConcurrentHashMap<String, String> agents = new ConcurrentHashMap<>();
+    private List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks = new ArrayList<>();
+    private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
     private DistributedPhaseInfo distributedPhaseInfo = new DistributedPhaseInfo();
     private Configuration configuration;
     private Configuration driverConfiguration;
-    private List<ScheduledFuture<Map<String, Future<HttpResponse>>>> newRunningTasks = new ArrayList<>();
 
     public Driver(Configuration configuration) {
         this.driverConfiguration = configuration;
@@ -82,6 +82,13 @@ public class Driver {
 
         this.driverConfiguration.getK8SConfig().merge(configuration.getK8SConfig());
         scheduleHeartbeatTask();
+    }
+
+    private void finishAgents() {
+        agents.forEach((key, value) -> {
+            httpUtils.sendSyncHttpRequest("", HttpUtils.getFinishPath(value), 3);
+            LOG.info("[Driver] Finishing agent " + key);
+        });
     }
 
     private void handleExecutionRequest(Configuration configuration) {
@@ -122,6 +129,9 @@ public class Driver {
                 e.printStackTrace();
             }
         }
+
+        // finish all agents
+        finishAgents();
     }
 
     private void scheduleHeartbeatTask() {
@@ -135,7 +145,7 @@ public class Driver {
         /* we should periodically check if recently added agents started executing tasks and
         we should monitor them.
          */
-        this.monitoringAgentsScheduler.scheduleAtFixedRate(new CheckAgentIsRunningToughdayTask(this.newRunningTasks, this.distributedPhaseInfo),
+        this.monitoringAgentsScheduler.scheduleAtFixedRate(new CheckAgentRunsToughday(this.newRunningTasks, this.distributedPhaseInfo),
                 0, GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
     }
 

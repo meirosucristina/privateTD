@@ -1,6 +1,5 @@
 package com.adobe.qe.toughday.internal.core.k8s;
 
-import com.adobe.qe.toughday.internal.core.config.ConfigParams;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.GenerateYamlConfiguration;
 import org.apache.logging.log4j.LogManager;

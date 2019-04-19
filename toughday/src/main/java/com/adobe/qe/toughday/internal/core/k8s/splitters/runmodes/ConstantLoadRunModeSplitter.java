@@ -11,6 +11,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Knows how to split the constant load run mode into multiple run modes to be distributed to the agents
+ * running in the cluster.
+ */
 public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad> {
 
     protected static final Logger LOG = LogManager.getLogger(Engine.class);

@@ -51,6 +51,8 @@ public class DistributedPhaseInfo {
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
+
+        this.runningTasks.clear();
     }
 
     public void updateCountPerTest() {
