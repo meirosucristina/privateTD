@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: agent-container
-        image: "toughdaycr.azurecr.io/agent:latest"
+        image: <TD docker image>
         livenessProbe:
           httpGet:
             path: /health
