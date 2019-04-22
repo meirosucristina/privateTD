@@ -20,10 +20,10 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.engine.*;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.ConstantLoadRunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.ConstantLoadRunModeSplitter;
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.ConstantLoadRunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.ConstantLoadRunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.RunModeSplitter;
 import org.apache.commons.lang3.mutable.MutableLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,8 +56,8 @@ public class ConstantLoad implements RunMode, Cloneable {
     private int currentLoad;
     //private int currentLoad;
     private long initialDelay = 0;
-    /* field used for checking the finish condition when running TD distributed on K8S with
-    the rate smaller than number of agents in the cluster. */
+    /* field used for checking the finish condition when running TD distributed with the rate
+     * smaller than number of agents in the cluster. */
     private int oneAgentRate = 0;
 
     private ScheduledExecutorService runRoundScheduler = Executors.newScheduledThreadPool(1);
@@ -132,7 +132,7 @@ public class ConstantLoad implements RunMode, Cloneable {
     }
 
     public ConstantLoad() {
-        /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
+        /* this is required when running TD distributed because scheduled task might be cancelled and
          * rescheduled when rebalancing the work between the agents.
          */
         ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) runRoundScheduler;

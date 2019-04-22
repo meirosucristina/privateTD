@@ -20,14 +20,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Publisher used by the agents in the K8s cluster to publish their individual results. Aggregated
+ * Publisher used by the agents in the cluster to publish their individual results. Aggregated
  * metrics could then by determined using tools like Grafana.
  */
 public class InfluxDbPublisher extends Publisher {
-    private static final String DEFAULT_DATABASE_NAME = "td-on-k8s";
+    private static final String DEFAULT_DATABASE_NAME = "td-on-distributedtd";
     private static final String DEFAULT_PORT = "8086";
     private static final String DEFAULT_TABLE_NAME = "testResults";
-    private static final String DEFAULT_K8S_NAMESPACE = "default";
+    private static final String DEFAULT_CLUSTER_NAMESPACE = "default";
 
     private static final Logger LOG = LoggerFactory.getLogger(InfluxDbPublisher.class);
 
@@ -35,7 +35,7 @@ public class InfluxDbPublisher extends Publisher {
     private int port = Integer.parseInt(DEFAULT_PORT);
     private String databaseName = DEFAULT_DATABASE_NAME;
     private String tableName = DEFAULT_TABLE_NAME;
-    private String k8sNamespace = DEFAULT_K8S_NAMESPACE;
+    private String clusterNamespace = DEFAULT_CLUSTER_NAMESPACE;
     private InfluxDB influxDB;
     private boolean setup = false;
     private final Gson GSON = new Gson();
@@ -65,7 +65,7 @@ public class InfluxDbPublisher extends Publisher {
         return this.influxName;
     }
 
-    @ConfigArgSet(required = false, defaultValue = "td-on-k8s", desc = "Name of the database in which" +
+    @ConfigArgSet(required = false, defaultValue = "td-on-distributedtd", desc = "Name of the database in which" +
             "the results are stored.")
     public void setDatabaseName(String databaseName) {
         this.databaseName = databaseName;
@@ -87,15 +87,15 @@ public class InfluxDbPublisher extends Publisher {
         return this.tableName;
     }
 
-    @ConfigArgSet(required = false, defaultValue = DEFAULT_K8S_NAMESPACE, desc = "The K8s namespace" +
+    @ConfigArgSet(required = false, defaultValue = DEFAULT_CLUSTER_NAMESPACE, desc = "The namespace in the cluster" +
             " where the InfluxDb was deployed.")
-    public void setK8sNamespace(String k8sNamespace) {
-        this.k8sNamespace = k8sNamespace;
+    public void setClusterNamespace(String clusterNamespace) {
+        this.clusterNamespace = clusterNamespace;
     }
 
     @ConfigArgGet
-    public String getK8sNamespace() {
-        return this.k8sNamespace;
+    public String getClusterNamespace() {
+        return this.clusterNamespace;
     }
 
     private void verifyConnection() {
@@ -108,7 +108,7 @@ public class InfluxDbPublisher extends Publisher {
     }
 
     private void setup() {
-        String connectionString = "http://" + this.influxName + "." + this.k8sNamespace + ":" + this.port;
+        String connectionString = "http://" + this.influxName + "." + this.clusterNamespace + ":" + this.port;
 
         this.influxDB = InfluxDBFactory.connect(connectionString);
         // avoid log messages at the console

@@ -6,7 +6,7 @@ import com.adobe.qe.toughday.internal.core.ReflectionsContainer;
 import com.adobe.qe.toughday.internal.core.config.*;
 
 import com.adobe.qe.toughday.internal.core.engine.Phase;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
 import org.apache.logging.log4j.Level;
 import org.yaml.snakeyaml.Yaml;
 
@@ -16,7 +16,7 @@ import java.util.*;
 
 /**
  * This class should only be used for dumping a Configuration object in order to send it
- * to the agents in the K8S cluster as an HTTP query. This class assumes that it is not necessary to dump
+ * to the agents running in the cluster as an HTTP query. This class assumes that it is not necessary to dump
  * the run mode and the publish mode fields of the Configuration class since each Phase described by this
  * configuration already defines those parameters.
  *
@@ -129,9 +129,9 @@ public class YamlDumpConfiguration {
        return globals;
     }
 
-    /* used for dumping the K8s cluster configuration */
-    public Map<String, Object> getK8sConfig() {
-        return collectConfigurableProperties(K8SConfig.class, configuration.getK8SConfig());
+    /* used for dumping the configuration for running TD distributed */
+    public Map<String, Object> getDistributedConfig() {
+        return collectConfigurableProperties(DistributedConfig.class, configuration.getDistributedConfig());
     }
 
     /**

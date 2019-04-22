@@ -12,8 +12,8 @@ governing permissions and limitations under the License.
 package com.adobe.qe.toughday.internal.core.engine;
 
 import com.adobe.qe.toughday.api.core.RunMap;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.RunModeSplitter;
 
 import java.util.Collection;
 import java.util.concurrent.ExecutorService;

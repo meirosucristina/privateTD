@@ -6,7 +6,7 @@ spec:
   template:
     metadata:
       labels:
-        app: toughday-on-K8s-driver
+        app: distributed-toughday-driver
     spec:
       containers:
       - image: <TD driver docker image>
@@ -34,7 +34,7 @@ spec:
     targetPort: 4567
     name: http
   selector:
-    app: toughday-on-K8s-driver
+    app: distributed-toughday-driver
 
 ---
 apiVersion: extensions/v1beta1

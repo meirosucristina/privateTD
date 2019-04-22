@@ -29,7 +29,7 @@ import com.adobe.qe.toughday.internal.core.config.*;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.google.common.base.Joiner;
 import net.jodah.typetools.TypeResolver;
@@ -56,7 +56,7 @@ public class CliParser implements ConfigurationParser {
     private static final String METRIC_CLASS_HELP_HEADER = PUBLISH_CLASS_HELP_HEADER;
     private static final String SUITE_HELP_HEADER = String.format("   %-40s %-40s   %s", "Suite", "Tags", "Description");
     private static Map<Integer, Map<String, ConfigArgSet>> availableGlobalArgs = new HashMap<>();
-    private static Map<Integer, Map<String, ConfigArgSet>> availableK8sConfigArgs = new HashMap<>();
+    private static Map<Integer, Map<String, ConfigArgSet>> availableDistributedConfigArgs = new HashMap<>();
     private static List<ParserArgHelp> parserArgHelps = new ArrayList<>();
 
 
@@ -91,7 +91,7 @@ public class CliParser implements ConfigurationParser {
 
     static {
         collectAvailableConfigurationOptions(GlobalArgs.class, availableGlobalArgs);
-        collectAvailableConfigurationOptions(K8SConfig.class, availableK8sConfigArgs);
+        collectAvailableConfigurationOptions(DistributedConfig.class, availableDistributedConfigArgs);
 
         for (Class parserClass : ReflectionsContainer.getSubTypesOf(ConfigurationParser.class)) {
             for (Field field : parserClass.getDeclaredFields()) {
@@ -272,9 +272,9 @@ public class CliParser implements ConfigurationParser {
                 } else if (arg.equals("runmode")) {
                     skip = parseObjectProperties(i + 1, cmdLineArgs, args);
                     configParams.setRunModeParams(args);
-                } else if (arg.equals("k8sconfig")) {
+                } else if (arg.equals("distributedconfig")) {
                     skip = parseObjectProperties(i + 1, cmdLineArgs, args);
-                    configParams.setK8sConfigParams(args);
+                    configParams.setDistributedConfigParams(args);
                 } else if (arg.equals("help")) {
                     skip = 1;
                     globalArgs.put("host", "N/A"); //TODO remove ugly hack
@@ -282,7 +282,7 @@ public class CliParser implements ConfigurationParser {
                     String[] res = parseProperty(arg);
                     String key = res[0];
                     Object val = getObjectFromString(res[1]);
-                    // if global param or k8s config param does not exist
+                    // if global param or distributed td config param does not exist
                     boolean found = isGlobalArg(key);
 
                    if (!found && !parserArgs.contains(key) && !availableHelpOptions.contains(key) && !helpOptionsParameters.contains(key)
@@ -477,9 +477,9 @@ public class CliParser implements ConfigurationParser {
         System.out.println("\t java -jar toughday.jar --host=localhost --add extension.jar --add com.adobe.qe.toughday.tests.extensionTest");
         System.out.println("\t java -jar toughday.jar --suite=toughday --add BASICMetrics --add Average decimals=3 --exclude Failed");
 
-        System.out.println("\r\nExamples for running TD distributed on Kubernetes: \r\n");
-        System.out.println("\t java -jar toughday.jar --host=localhost --k8sconfig driverip=1.1.1.1");
-        System.out.println("\t java -jar toughday.jar --host=localhost --k8sconfig driverip=1.1.1.1 heartbeatinterval=10s --suite=toughday");
+        System.out.println("\r\nExamples for running TD distributed: \r\n");
+        System.out.println("\t java -jar toughday.jar --host=localhost --distributedconfig driverip=1.1.1.1");
+        System.out.println("\t java -jar toughday.jar --host=localhost --distributedconfig driverip=1.1.1.1 heartbeatinterval=10s --suite=toughday");
 
         System.out.println("\r\nGlobal arguments:");
         availableGlobalArgs.forEach((order, paramGroup) ->
@@ -493,8 +493,8 @@ public class CliParser implements ConfigurationParser {
         System.out.printf("\t%-32s\t %s\r\n", "--suite=val",
                 "Default: toughday - Where \"val\" can be one or a list (separated by commas) of the predefined suites");
 
-        System.out.println("\r\nK8s run arguments (--k8sconfig):");
-        availableK8sConfigArgs.forEach((order, paramGroup) ->
+        System.out.println("\r\n Distributed run arguments (--distributedconfig):");
+        availableDistributedConfigArgs.forEach((order, paramGroup) ->
                 paramGroup.forEach((key, value) -> System.out.printf("\t%-32s\t Default: %s - %s\r\n",
                         key + "=val", value.defaultValue(), value.desc())));
 

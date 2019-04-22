@@ -14,9 +14,9 @@ package com.adobe.qe.toughday;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.config.parsers.cli.CliParser;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
-import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.Agent;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.Driver;
+import com.adobe.qe.toughday.internal.core.distributedtd.ExecutionTrigger;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Agent;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,19 +50,19 @@ public class Main {
                 System.exit(1);
             }
 
-            /* check if we should trigger an execution query in the K8S cluster. */
+            /* check if we should trigger an execution query in the cluster. */
             if (configuration.executeInDitributedMode()) {
                 new ExecutionTrigger(configuration).triggerExecution();
                 System.exit(0);
             }
 
-            if (configuration.getK8SConfig().getK8sAgent()) {
+            if (configuration.getDistributedConfig().getAgent()) {
                 Agent agent = new Agent();
                 agent.start();
                 System.exit(0);
             }
 
-            if (configuration.getK8SConfig().getK8sdriver()) {
+            if (configuration.getDistributedConfig().getDriver()) {
                 Driver driver = new Driver(configuration);
                 driver.run();
             }

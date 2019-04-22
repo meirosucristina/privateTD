@@ -24,7 +24,7 @@ import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlParser;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.publishers.CSVPublisher;
 import com.adobe.qe.toughday.publishers.ConsolePublisher;
@@ -62,7 +62,7 @@ public class Configuration {
 
     private PredefinedSuites predefinedSuites = new PredefinedSuites();
     private GlobalArgs globalArgs;
-    private K8SConfig k8SConfig;
+    private DistributedConfig distributedConfig;
     private RunMode runMode;
     private PublishMode publishMode;
     private TestSuite globalSuite;
@@ -228,9 +228,9 @@ public class Configuration {
     }
 
     public boolean executeInDitributedMode() {
-        return !configParams.getK8sConfigParams().isEmpty() &&
-                !this.getK8SConfig().getK8sAgent() &&
-                !this.getK8SConfig().getK8sdriver();
+        return !configParams.getDistributedConfigParams().isEmpty() &&
+                !this.getDistributedConfig().getAgent() &&
+                !this.getDistributedConfig().getDriver();
     }
 
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
@@ -248,7 +248,7 @@ public class Configuration {
             }
         }
 
-        this.k8SConfig = createObject(K8SConfig.class, configParams.getK8sConfigParams());
+        this.distributedConfig = createObject(DistributedConfig.class, configParams.getDistributedConfigParams());
         this.globalArgs = createObject(GlobalArgs.class, globalArgsMeta);
         configureLogPath(globalArgs.getLogPath());
 
@@ -870,8 +870,8 @@ public class Configuration {
      * Getter for kubernetes config args
      * @return
      */
-    public K8SConfig getK8SConfig() {
-        return this.k8SConfig;
+    public DistributedConfig getDistributedConfig() {
+        return this.distributedConfig;
     }
 
     /**

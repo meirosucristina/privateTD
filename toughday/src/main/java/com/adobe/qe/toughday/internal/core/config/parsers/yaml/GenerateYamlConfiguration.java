@@ -56,11 +56,11 @@ public class GenerateYamlConfiguration {
         return globals;
     }
 
-    public Map<String, Object> getK8sConfig() {
-        Map<String, Object> k8sConfigParms = configParams.getK8sConfigParams();
+    public Map<String, Object> getDistributedConfig() {
+        Map<String, Object> distributedConfigParms = configParams.getDistributedConfigParams();
         // remove this so that the driver won't try to trigger the execution
-        k8sConfigParms.remove("driverip");
-        return k8sConfigParms;
+        distributedConfigParms.remove("driverip");
+        return distributedConfigParms;
     }
 
     public Map<String, Object> getPublishmode() {

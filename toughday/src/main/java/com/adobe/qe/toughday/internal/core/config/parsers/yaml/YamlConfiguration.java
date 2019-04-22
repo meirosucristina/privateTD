@@ -13,7 +13,6 @@ package com.adobe.qe.toughday.internal.core.config.parsers.yaml;
 
 import com.adobe.qe.toughday.internal.core.config.ConfigParams;
 import com.adobe.qe.toughday.internal.core.config.PhaseParams;
-import com.adobe.qe.toughday.internal.core.k8s.cluster.K8SConfig;
 
 import java.util.List;
 import java.util.Map;
@@ -22,8 +21,8 @@ public class YamlConfiguration {
 
     private ConfigParams configParams = new ConfigParams();
 
-    private void setK8sConfig(Map<String, Object> k8sConfig) {
-        this.configParams.setK8sConfigParams(k8sConfig);
+    private void setDistributedConfig(Map<String, Object> distributedConfig) {
+        this.configParams.setDistributedConfigParams(distributedConfig);
     }
 
     public void setGlobals(Map<String, Object> globals) {

@@ -18,11 +18,11 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgGet;
 import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.engine.*;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.RunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.redistribution.runmodes.NormalRunModeBalancer;
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.NormalRunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.RunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes.NormalRunModeBalancer;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.NormalRunModeSplitter;
 
-import com.adobe.qe.toughday.internal.core.k8s.splitters.runmodes.RunModeSplitter;
+import com.adobe.qe.toughday.internal.core.distributedtd.splitters.runmodes.RunModeSplitter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,7 +68,7 @@ public class Normal implements RunMode, Cloneable {
 
 
     public Normal() {
-        /* this is required when running TD distributed on K8s because scheduled task might be cancelled and
+        /* this is required when running TD distributed because scheduled task might be cancelled and
          * rescheduled when rebalancing the work between the agents.
          */
         ScheduledThreadPoolExecutor scheduledPoolExecutor = (ScheduledThreadPoolExecutor) rampingScheduler;
