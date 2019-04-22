@@ -3,7 +3,6 @@ package com.adobe.qe.toughday.internal.core.distributedtd.cluster;
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
-import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.RedistributionRequestProcessor;
 import com.google.gson.Gson;
 import org.apache.http.client.methods.HttpGet;
@@ -26,7 +25,33 @@ import static spark.Spark.post;
  * Agent component for running TD distributed on Kubernetes.
  */
 public class Agent {
+    private static final String PORT = "4567";
+    public static final String NAME_PREFIX = "Agent";
+
+    // available routes
+    private static final String SUBMIT_TASK_PATH = "/submitTask";
+    private static final String FINISH_PATH = "/finish";
+    private static final String HEARTBEAT_PATH = "/heartbeat";
+    private static final String REBALANCE_PATH = "/rebalance";
+    public static final String HEALTH_PATH = "/health";
+
     protected static final Logger LOG = LogManager.getLogger(Agent.class);
+
+    public static String getFinishPath(String agentItAddress) {
+        return URL_PREFIX + agentItAddress + ":" + PORT + FINISH_PATH;
+    }
+
+    public static String getHeartbeatPath(String agentIpAddress) {
+        return URL_PREFIX + agentIpAddress + ":" + PORT + HEARTBEAT_PATH;
+    }
+
+    public static String getSubmissionTaskPath(String agentIpAdress) {
+        return URL_PREFIX + agentIpAdress + ":" + PORT + SUBMIT_TASK_PATH;
+    }
+
+    public static String getRebalancePath(String agentIp) {
+        return  URL_PREFIX + agentIp + PORT + REBALANCE_PATH;
+    }
 
     private Engine engine;
     private String ipAddress = "";
@@ -113,7 +138,7 @@ public class Agent {
      */
     private void register() {
         /* send register request to the driver */
-        HttpGet registerRequest = new HttpGet(HttpUtils.getAgentRegisterPath() + "/:" + this.ipAddress);
+        HttpGet registerRequest = new HttpGet(Driver.getAgentRegisterPath() + "?ip=" + this.ipAddress);
 
         // TODO: change this! Driver must confirm that the agent was registered.
         /* submit request and check response code */

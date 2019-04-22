@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class PhaseSplitter {
 
-    private Map<String, TestSuite> distributeTestSuite(TestSuite initialTestSuite, List<String> agents) {
+    private Map<String, TestSuite> distributeTestSuite(TestSuite initialTestSuite, List<String> agents)
+            throws CloneNotSupportedException {
         Map<String, TestSuite> taskTestSuites = new HashMap<>();
 
         for (int i = 0; i < agents.size(); i++) {

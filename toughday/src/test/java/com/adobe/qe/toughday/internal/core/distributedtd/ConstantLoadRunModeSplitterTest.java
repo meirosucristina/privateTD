@@ -3,14 +3,23 @@ package com.adobe.qe.toughday.internal.core.distributedtd;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.engine.runmodes.ConstantLoad;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LoggerContext;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.*;
 
 public class ConstantLoadRunModeSplitterTest {
     private ArrayList<String> cmdLineArgs = new ArrayList<>();
+
+    @BeforeClass
+    public static void onlyOnce() {
+        System.setProperty("logFileName", ".");
+        ((LoggerContext) LogManager.getContext(false)).reconfigure();
+    }
 
     @Before
     public void before() {

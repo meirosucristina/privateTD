@@ -39,14 +39,12 @@ public class TestSuite implements Cloneable {
         totalWeight = 0;
     }
 
-    public TestSuite clone() {
-        TestSuite newInstance = null;
-
-        try {
-            newInstance = (TestSuite) super.clone();
-        } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
-        }
+    /**
+     *  Creates a copy of the current test suite. All tests contained by the test suite are cloned.
+     * @throws CloneNotSupportedException  if the object to be cloned does not implement the Cloneable interface.
+     */
+    public TestSuite clone() throws CloneNotSupportedException {
+        TestSuite newInstance = (TestSuite) super.clone();
 
         /* clone all the tests in the TestSuite */
         newInstance.orderedTests = new ArrayList<>();

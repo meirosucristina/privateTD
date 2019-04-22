@@ -3,6 +3,7 @@ package com.adobe.qe.toughday.internal.core.distributedtd.tasks;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseInfo;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Agent;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Driver;
 import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.TaskBalancer;
 import com.google.gson.Gson;
@@ -65,7 +66,7 @@ public class HeartbeatTask implements Runnable {
         for (String agentName : activeAgents.keySet()) {
             String ipAddress = agents.get(agentName);
 
-            String URI = HttpUtils.getHeartbeatPath(ipAddress);
+            String URI = Agent.getHeartbeatPath(ipAddress);
             HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
             if (agentResponse != null) {
                 try {
@@ -76,7 +77,6 @@ public class HeartbeatTask implements Runnable {
                 continue;
             }
 
-            LOG.log(Level.INFO, "Agent with ip " + ipAddress + " failed to respond to heartbeat request.");
             if (!this.distributedPhaseInfo.isPhaseExecuting()) {
                 agents.remove(agentName);
                 continue;

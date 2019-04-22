@@ -104,7 +104,7 @@ public class Normal implements RunMode, Cloneable {
         this.waitTime = Integer.parseInt(waitTime);
     }
 
-    @ConfigArgGet()
+    @ConfigArgGet
     public int getStart() {
         return start;
     }

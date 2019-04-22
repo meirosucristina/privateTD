@@ -21,34 +21,6 @@ public class HttpUtils {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     public static final String URL_PREFIX = "http://";
-    public static final String EXECUTION_PATH = "/config";
-    public static final String HEARTBEAT_PATH = "/heartbeat";
-    public static final String SUBMIT_TASK_PATH = "/submitTask";
-    public static final String AGENT_PREFIX_NAME = "Agent";
-    public static final String REBALANCE_PATH = "/rebalance";
-    public static final String FINISH_PATH = "/finish";
-    public static final String HEALTH_PATH = "/health";
-    private static final String PORT = "4567";
-
-    public static String getAgentRegisterPath() {
-        return "http://driver:80/registerAgent";
-    }
-
-    public static String getSubmissionTaskPath(String agentIpAdress) {
-        return URL_PREFIX + agentIpAdress + ":" + PORT + SUBMIT_TASK_PATH;
-    }
-
-    public static String getHeartbeatPath(String agentIpAddress) {
-        return URL_PREFIX + agentIpAddress + ":" + PORT + HEARTBEAT_PATH;
-    }
-
-    public static String getFinishPath(String agentItAddress) {
-        return URL_PREFIX + agentItAddress + ":" + PORT + FINISH_PATH;
-    }
-
-    public static String getRebalancePath(String agentIp) {
-        return "http://" + agentIp + ":4567" + REBALANCE_PATH;
-    }
 
     public Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
                                                      CloseableHttpAsyncClient asyncClient) {
@@ -86,7 +58,7 @@ public class HttpUtils {
         return false;
     }
 
-    public HttpResponse sendHeartbeatRequest(String agentURI, int retrial ){
+    public HttpResponse sendHeartbeatRequest(String agentURI, int retries){
         CloseableHttpClient heartBeatHttpClient = HttpClientBuilder.create().build();
         HttpResponse agentResponse;
 
@@ -100,11 +72,11 @@ public class HttpUtils {
         heartbeatRequest.setConfig(requestConfig);
 
         boolean successfulRequest;
-        while (retrial > 0) {
+        while (retries > 0) {
             try {
                 agentResponse = heartBeatHttpClient.execute(heartbeatRequest);
             } catch (IOException e) {
-                retrial--;
+                retries--;
                 // maybe log warning to indicate why heartbeat failed
                 continue;
             }
@@ -116,7 +88,7 @@ public class HttpUtils {
                 }
             }
 
-            retrial--;
+            retries--;
         }
 
         return null;
@@ -126,12 +98,12 @@ public class HttpUtils {
         return responseCode >= 200 && responseCode < 300;
     }
 
-    public boolean sendSyncHttpRequest(String requestContent, String URI, int retrial) {
+    public boolean sendSyncHttpRequest(String requestContent, String URI, int retries) {
         boolean successfulRequest = false;
 
-        while (retrial > 0 && !successfulRequest) {
+        while (retries > 0 && !successfulRequest) {
             successfulRequest = sendSyncHttpRequest(requestContent, URI);
-            retrial--;
+            retries--;
         }
 
         return successfulRequest;

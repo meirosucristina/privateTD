@@ -2,6 +2,7 @@ package com.adobe.qe.toughday.internal.core.distributedtd;
 
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.GenerateYamlConfiguration;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Driver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -15,6 +16,7 @@ import java.util.HashMap;
 public class ExecutionTrigger {
 
     protected static final Logger LOG = LogManager.getLogger(ExecutionTrigger.class);
+    private static final String DEFAULT_CLUSTER_PORT = "80";
 
     private final Configuration configuration;
     private final String executionPath;
@@ -27,7 +29,8 @@ public class ExecutionTrigger {
                     " is required when running TD in distributed mode.");
         }
 
-        this.executionPath = "http://" + configuration.getDistributedConfig().getDriverIp() + ":80"  + "/config";
+        this.executionPath = "http://" + configuration.getDistributedConfig().getDriverIp() + ":" + DEFAULT_CLUSTER_PORT
+                + Driver.EXECUTION_PATH;
     }
 
     public void triggerExecution() {

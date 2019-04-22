@@ -39,6 +39,10 @@ public class Phase implements Cloneable {
     private Map<String, Metric> metrics = new LinkedHashMap<>();
     private Map<AbstractTest, AtomicLong> counts = new HashMap<>();
 
+    /**
+     * Creates shallow copy.
+     * @throws CloneNotSupportedException if the object to be cloned does not implement the Cloneable interface.
+     */
     @Override
     public Object clone() throws CloneNotSupportedException {
         // shallow copy

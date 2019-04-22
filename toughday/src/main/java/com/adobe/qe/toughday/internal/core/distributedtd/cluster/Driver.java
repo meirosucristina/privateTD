@@ -32,9 +32,10 @@ import static spark.Spark.*;
  * Driver component for the cluster.
  */
 public class Driver {
-
-    private static final String REGISTRATION_PARAM = ":ipAddress";
-    private static final String REGISTER_PATH = "/registerAgent/" + REGISTRATION_PARAM;
+    // routes
+    public static final String EXECUTION_PATH = "/config";
+    private static final String REGISTER_PATH = "/registerAgent";
+    private static final String HOSTNAME = "driver";
 
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
     private static final AtomicInteger id = new AtomicInteger(0);
@@ -54,6 +55,10 @@ public class Driver {
     public Driver(Configuration configuration) {
         this.driverConfiguration = configuration;
         asyncClient.start();
+    }
+
+    public static String getAgentRegisterPath() {
+        return URL_PREFIX + HOSTNAME + ":80" + REGISTER_PATH;
     }
 
     private void handleToughdaySampleContent(Configuration configuration) {
@@ -86,7 +91,7 @@ public class Driver {
 
     private void finishAgents() {
         agents.forEach((key, value) -> {
-            httpUtils.sendSyncHttpRequest("", HttpUtils.getFinishPath(value), 3);
+            httpUtils.sendSyncHttpRequest("", Agent.getFinishPath(value), 3);
             LOG.info("[Driver] Finishing agent " + key);
         });
     }
@@ -110,7 +115,7 @@ public class Driver {
                     String yamlTask = dumpConfig.generateConfigurationObject();
 
                     /* send query to agent and register running task */
-                    String URI = HttpUtils.getSubmissionTaskPath(agents.get(agentName));
+                    String URI = Agent.getSubmissionTaskPath(agents.get(agentName));
                     this.distributedPhaseInfo
                             .registerRunningTask(agentName, this.httpUtils.sendAsyncHttpRequest(URI, yamlTask, asyncClient));
 
@@ -170,8 +175,8 @@ public class Driver {
 
         /* expose http endpoint for registering new agents to the cluster */
         get(REGISTER_PATH, (request, response) -> {
-            String agentIp = request.params(REGISTRATION_PARAM).replaceFirst(":", "");
-            String agentName = AGENT_PREFIX_NAME + id.getAndIncrement();
+            String agentIp = request.queryParams("ip");
+            String agentName = Agent.NAME_PREFIX + id.getAndIncrement();
 
             LOG.info("[driver] Registered agent " + agentName + "with ip " + agentIp);
             if (!this.distributedPhaseInfo.isPhaseExecuting()) {

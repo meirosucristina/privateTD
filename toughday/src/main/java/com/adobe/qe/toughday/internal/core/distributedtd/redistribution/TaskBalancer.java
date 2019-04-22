@@ -3,6 +3,7 @@ package com.adobe.qe.toughday.internal.core.distributedtd.redistribution;
 import com.adobe.qe.toughday.internal.core.TestSuite;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
+import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Agent;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
@@ -97,7 +98,7 @@ public class TaskBalancer {
             .filter(entry -> !this.inactiveAgents.contains(entry.getKey())) // filter agents that become inactive
             .forEach(entry -> {
                 String agentName = entry.getKey();
-                String agentURI = HttpUtils.getRebalancePath(entry.getValue());
+                String agentURI = Agent.getRebalancePath(entry.getValue());
                 TestSuite testSuite = phases.get(agentName).getTestSuite();
                 RunMode runMode = phases.get(agentName).getRunMode();
 
@@ -134,7 +135,7 @@ public class TaskBalancer {
 
             LOG.info("[redistribution] sending execution request + " + yamlTask + " to new agent " + newAgentName);
             Future<HttpResponse> future  =
-                    this.httpUtils.sendAsyncHttpRequest(HttpUtils.getSubmissionTaskPath(newAgentIp), yamlTask, this.asyncClient);
+                    this.httpUtils.sendAsyncHttpRequest(Agent.getSubmissionTaskPath(newAgentIp), yamlTask, this.asyncClient);
             newRunningTasks.put(newAgentName, future);
 
         });
