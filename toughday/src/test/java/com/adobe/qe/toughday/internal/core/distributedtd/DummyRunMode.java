@@ -15,17 +15,17 @@ public class DummyRunMode implements RunMode {
     private String property2 = "prop2";
     private String property3 = "prop3";
 
-    @ConfigArgSet
+    @ConfigArgSet(required = false, defaultValue = "p1")
     public void setProperty1(String property1) {
         this.property1 = property1;
     }
 
-    @ConfigArgSet
+    @ConfigArgSet(required = false, defaultValue = "p2")
     public void setProperty2(String property2) {
         this.property2 = property2;
     }
 
-    @ConfigArgSet
+    @ConfigArgSet(required = false, defaultValue = "p3")
     public void setProperty3(String property3) {
         this.property3 = property3;
     }

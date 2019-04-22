@@ -33,7 +33,19 @@ public class YamlDumpConfiguration {
         return this.phases;
     }
 
-    private Map<String, Object> collectConfigurableProperties(Class type, Object object) {
+    /**
+     * This method is used for collecting all configurable properties that were assigned a new
+     * values(different than the default one) from the command line or the yaml configuration
+     * file used for running ToughDay.
+     * @param type class of the object whose properties are collected
+     * @param object instance
+     * @return
+     */
+    protected Map<String, Object> collectConfigurableProperties(Class type, Object object) {
+        if (!type.isAssignableFrom(object.getClass())) {
+            throw new IllegalArgumentException("The object must have the specified type.");
+        }
+
         Map<String, Object> configurableArgs = new HashMap<>();
 
         /* add all inherited configurable properties */
@@ -115,6 +127,10 @@ public class YamlDumpConfiguration {
     }
 
     public YamlDumpConfiguration(Configuration configuration) {
+        if (configuration == null) {
+            throw new IllegalArgumentException("Configuration must not be null.");
+        }
+
         this.configuration = configuration;
     }
 
