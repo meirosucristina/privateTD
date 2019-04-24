@@ -85,11 +85,11 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
 
         // compute the current load to determine the new values for start/current load
         long endTime = System.currentTimeMillis();
-        long diff = endTime - phaseStartTime;
-        int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
+        long diff = (endTime - phaseStartTime) / 1000; // convert to seconds
+        int estimatedCurrentLoad = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval())))
                 * runMode.getRate() + runMode.getStart();
 
-        LOG.info("Phase was executed for " + (endTime - diff) / 1000 + " seconds");
+        LOG.info("Phase was executed for " + diff + " seconds");
         LOG.info("Estimated current load " + estimatedCurrentLoad);
 
         // set start property for new agents
@@ -99,8 +99,8 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
         // set current load for old agents
         taskRunModes.get(oldAgents.get(0)).setCurrentLoad(estimatedCurrentLoad / agents.size() +
                  estimatedCurrentLoad % agents.size());
-        for (String oldAgent : oldAgents) {
-            taskRunModes.get(oldAgent).setCurrentLoad(estimatedCurrentLoad / agents.size());
+        for (int i = 1; i < oldAgents.size(); i++) {
+            taskRunModes.get(oldAgents.get(i)).setCurrentLoad(estimatedCurrentLoad / agents.size());
         }
 
         return taskRunModes;

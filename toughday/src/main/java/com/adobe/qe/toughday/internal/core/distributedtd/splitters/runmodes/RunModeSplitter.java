@@ -16,7 +16,6 @@ public interface RunModeSplitter<T extends RunMode> {
      * running in the cluster.
      * @param runMode object to be partitioned
      * @param agents names of the agents waiting to receive TD execution requests from the driver.
-     * @return
      */
     Map<String, T> distributeRunMode(T runMode, List<String> agents);
 
@@ -25,8 +24,7 @@ public interface RunModeSplitter<T extends RunMode> {
      * @param runMode object to be partitioned
      * @param oldAgents list of agents that were running TD before starting the work redistribution process.
      * @param newAgents list of agents which recently joined the cluster
-     * @param phaseStartTime
-     * @return
+     * @param phaseStartTime : time when the phase execution started
      */
     Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents,
                                                        long phaseStartTime);

@@ -9,20 +9,17 @@ import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.TaskBala
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.http.util.EntityUtils;
-import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public class HeartbeatTask implements Runnable {
     protected static final Logger LOG = LogManager.getLogger(Driver.class);
 
-    private final ConcurrentHashMap<String, String> agents;
+    private final Queue<String> agents;
     private DistributedPhaseInfo distributedPhaseInfo;
     private Configuration configuration;
     private Configuration driverConfiguration;
@@ -30,7 +27,7 @@ public class HeartbeatTask implements Runnable {
 
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
 
-    public HeartbeatTask(ConcurrentHashMap<String, String> agents, DistributedPhaseInfo distributedPhaseInfo,
+    public HeartbeatTask(Queue<String> agents, DistributedPhaseInfo distributedPhaseInfo,
                          Configuration configuration, Configuration driverConfiguration) {
         this.agents = agents;
         this.distributedPhaseInfo = distributedPhaseInfo;
@@ -38,15 +35,14 @@ public class HeartbeatTask implements Runnable {
         this.driverConfiguration = driverConfiguration;
     }
 
-    private void processHeartbeatResponse(String agentName, HttpResponse agentResponse) throws IOException {
+    private void processHeartbeatResponse(String agentIp, HttpResponse agentResponse) throws IOException {
         // the agent has sent his statistic for executions/test => aggregate counts
         Gson gson = new Gson();
         String yamlCounts =  EntityUtils.toString(agentResponse.getEntity());
 
         // gson treats numbers as double values by default
         Map<String, Double> doubleAgentCounts = gson.fromJson(yamlCounts, Map.class);
-        LOG.info("[heartbeat] Received execution state from agent " + agentName +
-                "(" + agents.get(agentName) + ") : " + doubleAgentCounts.toString());
+        LOG.info("[heartbeat] Received execution state from agent " + agentIp + ": " + doubleAgentCounts.toString());
 
         // recently added agents might not execute tests yet
         if (doubleAgentCounts.isEmpty()) {
@@ -54,23 +50,22 @@ public class HeartbeatTask implements Runnable {
         }
 
         this.distributedPhaseInfo.getExecutions().forEach((testName, executionsPerAgent) ->
-                executionsPerAgent.put(agentName, doubleAgentCounts.get(testName).longValue()));
+                executionsPerAgent.put(agentIp, doubleAgentCounts.get(testName).longValue()));
     }
 
     @Override
     public void run() {
-        Map<String, String> activeAgents = new HashMap<>(agents);
+        List<String> activeAgents = new ArrayList<>(agents);
         // remove agents which previously failed to respond to heartbeat request
+        LOG.info("Inactive agents: " + this.taskBalancer.getInactiveAgents().toString() );
         this.taskBalancer.getInactiveAgents().forEach(activeAgents::remove);
 
-        for (String agentName : activeAgents.keySet()) {
-            String ipAddress = agents.get(agentName);
-
-            String URI = Agent.getHeartbeatPath(ipAddress);
+        for (String agentIp : activeAgents) {
+            String URI = Agent.getHeartbeatPath(agentIp);
             HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
             if (agentResponse != null) {
                 try {
-                    processHeartbeatResponse(agentName, agentResponse);
+                    processHeartbeatResponse(agentIp, agentResponse);
                 } catch (IOException e) {
                     // skip this for now.
                 }
@@ -78,17 +73,17 @@ public class HeartbeatTask implements Runnable {
             }
 
             if (!this.distributedPhaseInfo.isPhaseExecuting()) {
-                agents.remove(agentName);
+                agents.remove(agentIp);
                 continue;
             }
 
-            this.taskBalancer.addInactiveAgent(agentName);
+            this.taskBalancer.addInactiveAgent(agentIp);
             // we should not wait for task completion since the agent running it left the cluster
-            this.distributedPhaseInfo.removeRunningTask(agentName);
+            this.distributedPhaseInfo.removeAgentFromActiveTDRunners(agentIp);
 
             if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
                 LOG.info("[Driver] Redistribution will be triggered again after the current one is finished because " +
-                        "agent" + agentName + "(" + agents.get(agentName) + ") became unavailable." );
+                        "agent" + agentIp + " became unavailable." );
                 this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
 
             } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
@@ -98,7 +93,7 @@ public class HeartbeatTask implements Runnable {
 
                 this.taskBalancer.getRebalanceScheduler()
                         .schedule(() -> taskBalancer.rebalanceWork(this.distributedPhaseInfo, this.agents, this.configuration,
-                                    this.driverConfiguration.getDistributedConfig(), this.distributedPhaseInfo.getPhaseStartTime()),
+                                    this.driverConfiguration.getDistributedConfig()),
                                 this.driverConfiguration.getDistributedConfig().getRedistributionWaitTimeInSeconds(),
                                 TimeUnit.SECONDS);
             }

@@ -94,11 +94,11 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
 
         // compute the expected current concurrency
         long endTime = System.currentTimeMillis();
-        long diff = endTime - phaseStartTime;
-        int estimatedConcurrency = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval()))) / 1000
+        long diff = (endTime - phaseStartTime) / 1000;
+        int estimatedConcurrency = ((int)(diff / GlobalArgs.parseDurationToSeconds(runMode.getInterval())))
                 * runMode.getRate() + runMode.getStart();
 
-        LOG.info("Phase was executed for " + diff / 1000 + " seconds");
+        LOG.info("Phase was executed for " + diff + " seconds");
         LOG.info("Estimated concurrency " + estimatedConcurrency);
 
         // set start property for new agents
@@ -108,8 +108,8 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
         // set desired active threads for old agents
         taskRunModes.get(oldAgents.get(0)).setConcurrency(String.valueOf(estimatedConcurrency / agents.size() +
                 estimatedConcurrency % agents.size()));
-        for (String oldAgent : oldAgents) {
-            taskRunModes.get(oldAgent).setConcurrency(String.valueOf(estimatedConcurrency / agents.size()));
+        for (int i = 1; i < oldAgents.size(); i++) {
+            taskRunModes.get(oldAgents.get(i)).setConcurrency(String.valueOf(estimatedConcurrency / agents.size()));
         }
 
         return taskRunModes;

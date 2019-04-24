@@ -2,18 +2,19 @@ package com.adobe.qe.toughday.internal.core.distributedtd.cluster;
 
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
+import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.RedistributionRequestProcessor;
 import com.google.gson.Gson;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 
@@ -26,7 +27,8 @@ import static spark.Spark.post;
  */
 public class Agent {
     private static final String PORT = "4567";
-    public static final String NAME_PREFIX = "Agent";
+    private static final int HTTP_REQUEST_RETRIES = 3;
+    private final ExecutorService tdExecutorService = Executors.newFixedThreadPool(1);
 
     // available routes
     private static final String SUBMIT_TASK_PATH = "/submitTask";
@@ -35,7 +37,8 @@ public class Agent {
     private static final String REBALANCE_PATH = "/rebalance";
     public static final String HEALTH_PATH = "/health";
 
-    protected static final Logger LOG = LogManager.getLogger(Agent.class);
+    protected static final Logger LOG = LogManager.getLogger(Engine.class);
+    private HttpUtils httpUtils = new HttpUtils();
 
     public static String getFinishPath(String agentItAddress) {
         return URL_PREFIX + agentItAddress + ":" + PORT + FINISH_PATH;
@@ -50,18 +53,36 @@ public class Agent {
     }
 
     public static String getRebalancePath(String agentIp) {
-        return  URL_PREFIX + agentIp + PORT + REBALANCE_PATH;
+        return  URL_PREFIX + agentIp + ":" +  PORT + REBALANCE_PATH;
     }
 
     private Engine engine;
     private String ipAddress = "";
     private final RedistributionRequestProcessor redistributionRequestProcessor = new RedistributionRequestProcessor();
-    private final CloseableHttpAsyncClient asyncClient = HttpAsyncClients.createDefault();
     private volatile boolean finished = false;
 
-    public void start() {
-        asyncClient.start();
+    private boolean announcePhaseCompletion() {
+        /* the current master might be dead so we should retry this for a certain amount of time before shutting
+         * down the execution.
+         */
+        boolean successfullyAnnouncedDriver = false;
+        long duration = GlobalArgs.parseDurationToSeconds("60s");
+        while (duration > 0) {
+            successfullyAnnouncedDriver =
+                    this.httpUtils.sendSyncHttpRequest(this.ipAddress, Driver.getPhaseFinishedByAgentPath(), HTTP_REQUEST_RETRIES);
+            try {
+                Thread.sleep(10 * 1000L); // try again in 10 seconds
+            } catch (InterruptedException e) {
+                // skip this since this thread is generally not interrupted by anyone
+            } finally {
+                duration -= GlobalArgs.parseDurationToSeconds("10s");
+            }
+        }
 
+        return successfullyAnnouncedDriver;
+    }
+
+    public void start() {
         try {
             ipAddress = InetAddress.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
@@ -71,22 +92,30 @@ public class Agent {
 
         register();
 
-
-
+        /* Expose http endpoint for receiving ToughDay execution request from the driver */
         post(SUBMIT_TASK_PATH, ((request, response) ->  {
             LOG.info("[Agent] Received execution request");
 
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
-            // TODO: change this to be executed in a different thread. The driver should know that the task was received by the agent!
-            this.engine = new Engine(configuration);
-            this.engine.runTests();
-            LOG.info("[Agent] Successfully completed ToughDay task execution");
+            tdExecutorService.submit(() ->  {
+                this.engine = new Engine(configuration);
+                this.engine.runTests();
+
+                if (!announcePhaseCompletion()) {
+                    /* we reach a situation in which drivers are no longer able to respond to http requests
+                     * requests sent by the agents => finish execution.
+                     */
+                    LOG.error("Agent " + this.ipAddress + " could not inform driver that phase was executed.");
+                    System.exit(-1);
+                }
+            });
 
             return "";
         }));
 
+        /* Expose http endpoint to be used by the driver for heartbeat messages */
         get(HEARTBEAT_PATH, ((request, response) ->
         {
             // send to driver the total number of executions/test
@@ -104,9 +133,11 @@ public class Agent {
             return gson.toJson(currentCounts);
         }));
 
+        /* expose http endpoint for receiving redistribution requests from the driver */
         post(REBALANCE_PATH, (((request, response) ->  {
             // this agent has recently joined the cluster => skip this request for now.
-            if (this.engine == null) {
+            if (this.engine == null || this.engine.getCurrentPhase() == null) {
+                LOG.info("Agent " + this.ipAddress + " is skipping rebalancing for now...");
                 return "";
             }
 
@@ -118,8 +149,10 @@ public class Agent {
         })));
 
 
+        /* expose http endpoint for health checks */
         get(HEALTH_PATH, ((request, response) -> "Healthy"));
 
+        /* expose http endpoint for finishing the execution of the agent */
         post(FINISH_PATH, ((request, response) -> {
             LOG.info("Finished work");
             this.finished = true;
@@ -138,10 +171,11 @@ public class Agent {
      */
     private void register() {
         /* send register request to the driver */
-        HttpGet registerRequest = new HttpGet(Driver.getAgentRegisterPath() + "?ip=" + this.ipAddress);
+        boolean successfullyRegistered =
+                this.httpUtils.sendSyncHttpRequest(this.ipAddress, Driver.getAgentRegisterPath(), HTTP_REQUEST_RETRIES);
+        if (!successfullyRegistered) {
+            System.exit(-1);
+        }
 
-        // TODO: change this! Driver must confirm that the agent was registered.
-        /* submit request and check response code */
-        asyncClient.execute(registerRequest, null);
     }
 }

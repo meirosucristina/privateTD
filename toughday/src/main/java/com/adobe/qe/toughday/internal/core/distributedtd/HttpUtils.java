@@ -9,34 +9,14 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.concurrent.Future;
 
 public class HttpUtils {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     public static final String URL_PREFIX = "http://";
-
-    public Future<HttpResponse> sendAsyncHttpRequest(String URI, String content,
-                                                     CloseableHttpAsyncClient asyncClient) {
-        HttpPost taskRequest = new HttpPost(URI);
-        try {
-            StringEntity params = new StringEntity(content);
-            taskRequest.setEntity(params);
-            taskRequest.setHeader("Content-type", "text/plain");
-
-            return asyncClient.execute(taskRequest, null);
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-    }
 
     public boolean sendSyncHttpRequest(String requestContent, String URI) {
         HttpClient httpClient = HttpClientBuilder.create().build();

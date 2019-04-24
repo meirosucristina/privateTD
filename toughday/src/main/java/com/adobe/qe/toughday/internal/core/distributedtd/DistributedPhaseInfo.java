@@ -1,26 +1,23 @@
 package com.adobe.qe.toughday.internal.core.distributedtd;
 
 import com.adobe.qe.toughday.internal.core.engine.Phase;
-import com.adobe.qe.toughday.internal.core.distributedtd.tasks.CheckPhaseCompletionTask;
-import org.apache.http.HttpResponse;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 public class DistributedPhaseInfo {
-    private ExecutorService executorService = Executors.newFixedThreadPool(1);
-    private final Map<String, Future<HttpResponse>> runningTasks = new HashMap<>();
+    private final ExecutorService executorService = Executors.newFixedThreadPool(1);
+    private final List<String> agentsRunningTD = new ArrayList<>();
     // key = name of the test; value = map(key = name of the agent, value = nr of tests executed)
     private Map<String, Map<String, Long>> executions = new HashMap<>();
     private Phase phase;
     private long phaseStartTime = 0;
 
     public boolean isPhaseExecuting() {
-        return this.phase != null && !this.runningTasks.isEmpty();
+        return this.phase != null && !this.agentsRunningTD.isEmpty();
     }
 
     public void setPhaseStartTime(long phaseStartTime) {
@@ -36,23 +33,27 @@ public class DistributedPhaseInfo {
         this.phase.getTestSuite().getTests().forEach(test -> executions.put(test.getName(), new HashMap<>()));
     }
 
-    public void registerRunningTask(String agentName, Future<HttpResponse> agentResponse) {
-        this.runningTasks.put(agentName, agentResponse);
+    public void registerAgentRunningTD(String agentName) {
+        this.agentsRunningTD.add(agentName);
     }
 
-    public void removeRunningTask(String agentName) {
-        this.runningTasks.remove(agentName);
+    public void removeAgentFromActiveTDRunners(String agentName) {
+        this.agentsRunningTD.remove(agentName);
     }
 
-    public void waitForPhaseCompletion() {
-        Future future = executorService.submit(new CheckPhaseCompletionTask(this.runningTasks));
-        try {
-            future.get();
-        } catch (InterruptedException | ExecutionException e) {
-            e.printStackTrace();
-        }
+    public void waitForPhaseCompletion() throws ExecutionException, InterruptedException {
+        Future<?> waitPhaseCompletion = executorService.submit(() -> {
+            while (!this.agentsRunningTD.isEmpty()) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    // this will not cause further problems => it can be ignored
+                }
+            }
+        });
 
-        this.runningTasks.clear();
+        waitPhaseCompletion.get();
+
     }
 
     public void updateCountPerTest() {
