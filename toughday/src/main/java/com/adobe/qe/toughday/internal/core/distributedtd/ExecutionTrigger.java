@@ -3,6 +3,7 @@ package com.adobe.qe.toughday.internal.core.distributedtd;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.GenerateYamlConfiguration;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Driver;
+import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -29,7 +30,7 @@ public class ExecutionTrigger {
                     " is required when running TD in distributed mode.");
         }
 
-        this.executionPath = "http://" + configuration.getDistributedConfig().getDriverIp() + ":" + DEFAULT_CLUSTER_PORT
+        this.executionPath = HttpUtils.URL_PREFIX + configuration.getDistributedConfig().getDriverIp() + ":" + DEFAULT_CLUSTER_PORT
                 + Driver.EXECUTION_PATH;
     }
 
@@ -39,7 +40,8 @@ public class ExecutionTrigger {
         System.out.println(yamlConfig);
         HttpUtils httpUtils = new HttpUtils();
 
-        if (!httpUtils.sendSyncHttpRequest(yamlConfig, executionPath, 3)) {
+        HttpResponse response = httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, yamlConfig, executionPath, 3);
+        if (response == null) {
             LOG.warn("TD execution request could not be sent to driver. Make sure that driver is up" +
                     " and ready to process requests.");
         }

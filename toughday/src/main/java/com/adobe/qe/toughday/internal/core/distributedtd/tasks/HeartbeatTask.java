@@ -1,7 +1,7 @@
 package com.adobe.qe.toughday.internal.core.distributedtd.tasks;
 
 import com.adobe.qe.toughday.internal.core.config.Configuration;
-import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseInfo;
+import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseMonitor;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Agent;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Driver;
@@ -14,23 +14,23 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.HTTP_REQUEST_RETRIES;
 
 public class HeartbeatTask implements Runnable {
     protected static final Logger LOG = LogManager.getLogger(Driver.class);
 
     private final Queue<String> agents;
-    private DistributedPhaseInfo distributedPhaseInfo;
+    private DistributedPhaseMonitor distributedPhaseMonitor;
     private Configuration configuration;
     private Configuration driverConfiguration;
     private final HttpUtils httpUtils = new HttpUtils();
-
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
 
-    public HeartbeatTask(Queue<String> agents, DistributedPhaseInfo distributedPhaseInfo,
+    public HeartbeatTask(Queue<String> agents, DistributedPhaseMonitor distributedPhaseMonitor,
                          Configuration configuration, Configuration driverConfiguration) {
         this.agents = agents;
-        this.distributedPhaseInfo = distributedPhaseInfo;
+        this.distributedPhaseMonitor = distributedPhaseMonitor;
         this.configuration = configuration;
         this.driverConfiguration = driverConfiguration;
     }
@@ -49,7 +49,7 @@ public class HeartbeatTask implements Runnable {
             return;
         }
 
-        this.distributedPhaseInfo.getExecutions().forEach((testName, executionsPerAgent) ->
+        this.distributedPhaseMonitor.getExecutions().forEach((testName, executionsPerAgent) ->
                 executionsPerAgent.put(agentIp, doubleAgentCounts.get(testName).longValue()));
     }
 
@@ -62,43 +62,26 @@ public class HeartbeatTask implements Runnable {
 
         for (String agentIp : activeAgents) {
             String URI = Agent.getHeartbeatPath(agentIp);
-            HttpResponse agentResponse = httpUtils.sendHeartbeatRequest(URI, 3);
+            HttpResponse agentResponse = httpUtils.sendHttpRequest(HttpUtils.GET_METHOD, "", URI, HTTP_REQUEST_RETRIES);
             if (agentResponse != null) {
                 try {
                     processHeartbeatResponse(agentIp, agentResponse);
                 } catch (IOException e) {
-                    // skip this for now.
+                    LOG.warn("Could not process heartbeat information received form agent " + agentIp);
                 }
                 continue;
             }
 
-            if (!this.distributedPhaseInfo.isPhaseExecuting()) {
+            if (!this.distributedPhaseMonitor.isPhaseExecuting()) {
                 agents.remove(agentIp);
                 continue;
             }
 
-            this.taskBalancer.addInactiveAgent(agentIp);
-            // we should not wait for task completion since the agent running it left the cluster
-            this.distributedPhaseInfo.removeAgentFromActiveTDRunners(agentIp);
-
-            if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
-                LOG.info("[Driver] Redistribution will be triggered again after the current one is finished because " +
-                        "agent" + agentIp + " became unavailable." );
-                this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
-
-            } else if (this.taskBalancer.getState() != TaskBalancer.RebalanceState.SCHEDULED) {
-                this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
-                System.out.println("[Driver] Scheduling work redistribution process to start in " +
-                        this.driverConfiguration.getDistributedConfig().getRedistributionWaitTimeInSeconds() + "seconds.");
-
-                this.taskBalancer.getRebalanceScheduler()
-                        .schedule(() -> taskBalancer.rebalanceWork(this.distributedPhaseInfo, this.agents, this.configuration,
-                                    this.driverConfiguration.getDistributedConfig()),
-                                this.driverConfiguration.getDistributedConfig().getRedistributionWaitTimeInSeconds(),
-                                TimeUnit.SECONDS);
-            }
+            this.taskBalancer.rebalanceWork(this.distributedPhaseMonitor, this.agents,
+                                            this.configuration, this.driverConfiguration.getDistributedConfig(),
+                                            agentIp, false);
         }
 
-        LOG.info("[driver] Number of executions per test: " + this.distributedPhaseInfo.getExecutionsPerTest());
+        LOG.info("[driver] Number of executions per test: " + this.distributedPhaseMonitor.getExecutionsPerTest());
     }
 }

@@ -134,7 +134,9 @@ public class YamlDumpConfiguration {
         this.configuration = configuration;
     }
 
-    /* used for dumping the global parameters */
+    /**
+     * Getter for global params.
+     */
     public Map<String, Object> getGlobals() {
        Map<String, Object> globals =
                collectConfigurableProperties(GlobalArgs.class, configuration.getGlobalArgs());
@@ -146,13 +148,17 @@ public class YamlDumpConfiguration {
     }
 
     /* used for dumping the configuration for running TD distributed */
+
+    /**
+     * Getter for the distributed configuration.
+     * @return
+     */
     public Map<String, Object> getDistributedConfig() {
         return collectConfigurableProperties(DistributedConfig.class, configuration.getDistributedConfig());
     }
 
     /**
      * Dumps the configuration received in the constructor as yaml String.
-     * @return
      */
     public String generateConfigurationObject() {
         buildYamlDumpPhases();

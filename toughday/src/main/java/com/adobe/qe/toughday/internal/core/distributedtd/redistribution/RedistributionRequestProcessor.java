@@ -14,7 +14,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- *
+ *  Class responsible for processing the rebalancing request received by an agent from the driver when the
+ *  work must be rebalanced.
  */
 public class RedistributionRequestProcessor {
     protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeBalancer.class);
@@ -52,6 +53,12 @@ public class RedistributionRequestProcessor {
         runMode.getRunModeBalancer().after(redistributionInstructions, runMode);
     }
 
+    /**
+     * Method used for processing the rebalance request.
+     * @param request : the request to be processed
+     * @param phase : the current phase being executed by the agents.
+     * @throws IOException : if the body of the request does not have the appropriate format.
+     */
     public void processRequest(Request request, Phase phase) throws IOException {
         if (phase == null) {
             throw new IllegalStateException("Phase must not be null during work redistribution process.");

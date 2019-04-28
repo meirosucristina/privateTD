@@ -3,39 +3,44 @@ package com.adobe.qe.toughday.internal.core.distributedtd.cluster;
 import com.adobe.qe.toughday.api.core.AbstractTest;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
+import com.adobe.qe.toughday.internal.core.config.PhaseParams;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.RedistributionRequestProcessor;
 import com.google.gson.Gson;
+import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.*;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 
-import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.*;
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.HTTP_REQUEST_RETRIES;
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.URL_PREFIX;
+import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
 import static spark.Spark.get;
 import static spark.Spark.post;
 
 /**
- * Agent component for running TD distributed on Kubernetes.
+ * Agent component for running TD distributed.
  */
 public class Agent {
     private static final String PORT = "4567";
-    private static final int HTTP_REQUEST_RETRIES = 3;
     private final ExecutorService tdExecutorService = Executors.newFixedThreadPool(1);
+    private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
+    private Future<?> tdFuture = null;
 
     // available routes
+    private static final String INSTALL_SAMPLE_CONTENT_PATH = "/sampleContent";
     private static final String SUBMIT_TASK_PATH = "/submitTask";
     private static final String FINISH_PATH = "/finish";
     private static final String HEARTBEAT_PATH = "/heartbeat";
     private static final String REBALANCE_PATH = "/rebalance";
-    public static final String HEALTH_PATH = "/health";
+    private static final String HEALTH_PATH = "/health";
 
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
     private HttpUtils httpUtils = new HttpUtils();
@@ -52,24 +57,29 @@ public class Agent {
         return URL_PREFIX + agentIpAdress + ":" + PORT + SUBMIT_TASK_PATH;
     }
 
-    public static String getRebalancePath(String agentIp) {
-        return  URL_PREFIX + agentIp + ":" +  PORT + REBALANCE_PATH;
+    public static String getRebalancePath(String agentIpAddress) {
+        return URL_PREFIX + agentIpAddress + ":" +  PORT + REBALANCE_PATH;
+    }
+
+    public static String getInstallSampleContentPath(String agentIpAddress) {
+        return URL_PREFIX + agentIpAddress + ":" + PORT + INSTALL_SAMPLE_CONTENT_PATH;
     }
 
     private Engine engine;
     private String ipAddress = "";
     private final RedistributionRequestProcessor redistributionRequestProcessor = new RedistributionRequestProcessor();
-    private volatile boolean finished = false;
 
     private boolean announcePhaseCompletion() {
         /* the current master might be dead so we should retry this for a certain amount of time before shutting
          * down the execution.
          */
-        boolean successfullyAnnouncedDriver = false;
+        HttpResponse response = null;
         long duration = GlobalArgs.parseDurationToSeconds("60s");
-        while (duration > 0) {
-            successfullyAnnouncedDriver =
-                    this.httpUtils.sendSyncHttpRequest(this.ipAddress, Driver.getPhaseFinishedByAgentPath(), HTTP_REQUEST_RETRIES);
+
+        while (duration > 0 && response == null) {
+            response = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, this.ipAddress,
+                    Driver.getPhaseFinishedByAgentPath(), HTTP_REQUEST_RETRIES);
+
             try {
                 Thread.sleep(10 * 1000L); // try again in 10 seconds
             } catch (InterruptedException e) {
@@ -79,18 +89,45 @@ public class Agent {
             }
         }
 
-        return successfullyAnnouncedDriver;
+        return response != null;
     }
 
     public void start() {
         try {
             ipAddress = InetAddress.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
+            // todo: change this!
             e.printStackTrace();
             System.exit(-1);
         }
 
         register();
+
+        post(INSTALL_SAMPLE_CONTENT_PATH, ((request, response) -> {
+            String yamlConfig = request.body();
+            Configuration configuration = new Configuration(yamlConfig);
+
+            this.tdExecutorService.submit(() -> {
+                try {
+                    installToughdayContentPackage(configuration.getGlobalArgs());
+                } catch (Exception e) {
+                    LOG.error("Error encountered when installing TD sample content", e);
+                }
+
+                HttpResponse driverResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, "",
+                        Driver.getSampleContentAckPath(), HTTP_REQUEST_RETRIES);
+                if (driverResponse == null) {
+                    // we should never be in this situation
+                    LOG.error("Drive could not be reached by agent.");
+                    System.exit(-1);
+                }
+
+            });
+
+            // clear all phases
+            PhaseParams.namedPhases.clear();
+            return "";
+        }));
 
         /* Expose http endpoint for receiving ToughDay execution request from the driver */
         post(SUBMIT_TASK_PATH, ((request, response) ->  {
@@ -99,17 +136,15 @@ public class Agent {
             String yamlTask = request.body();
             Configuration configuration = new Configuration(yamlTask);
 
-            tdExecutorService.submit(() ->  {
+            this.tdFuture = tdExecutorService.submit(() ->  {
                 this.engine = new Engine(configuration);
                 this.engine.runTests();
 
                 if (!announcePhaseCompletion()) {
-                    /* we reach a situation in which drivers are no longer able to respond to http requests
-                     * requests sent by the agents => finish execution.
-                     */
                     LOG.error("Agent " + this.ipAddress + " could not inform driver that phase was executed.");
                     System.exit(-1);
                 }
+
             });
 
             return "";
@@ -136,7 +171,7 @@ public class Agent {
         /* expose http endpoint for receiving redistribution requests from the driver */
         post(REBALANCE_PATH, (((request, response) ->  {
             // this agent has recently joined the cluster => skip this request for now.
-            if (this.engine == null || this.engine.getCurrentPhase() == null) {
+            if (this.engine == null || this.engine.getCurrentPhase() == null || this.engine.getCurrentPhase().getRunMode() == null ) {
                 LOG.info("Agent " + this.ipAddress + " is skipping rebalancing for now...");
                 return "";
             }
@@ -154,26 +189,26 @@ public class Agent {
 
         /* expose http endpoint for finishing the execution of the agent */
         post(FINISH_PATH, ((request, response) -> {
-            LOG.info("Finished work");
-            this.finished = true;
+            scheduledExecutorService.schedule(() -> {
+                this.tdExecutorService.shutdown();
+                this.scheduledExecutorService.shutdown();
+
+                System.exit(0);
+            }, GlobalArgs.parseDurationToSeconds("3s"), TimeUnit.SECONDS);
+
             return "";
         }));
-
-        // wait for requests
-        while (!finished) {}
     }
 
-    /**
-     * Method responsible for registering the current agent to the driver. It should be the
+    /* Method responsible for registering the current agent to the driver. It should be the
      * first method executed.
-     * It might take a while for the driver to send a response to the agent(in case redistribution is
-     * executing) so the request should be asynchronous.
      */
     private void register() {
-        /* send register request to the driver */
-        boolean successfullyRegistered =
-                this.httpUtils.sendSyncHttpRequest(this.ipAddress, Driver.getAgentRegisterPath(), HTTP_REQUEST_RETRIES);
-        if (!successfullyRegistered) {
+        HttpResponse response =
+                this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, this.ipAddress,
+                                                Driver.getAgentRegisterPath(), HTTP_REQUEST_RETRIES);
+        if (response == null) {
+            System.out.println("could not register");
             System.exit(-1);
         }
 

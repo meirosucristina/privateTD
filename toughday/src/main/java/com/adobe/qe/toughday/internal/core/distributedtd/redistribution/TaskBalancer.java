@@ -7,17 +7,20 @@ import com.adobe.qe.toughday.internal.core.distributedtd.cluster.Agent;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
-import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseInfo;
+import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseMonitor;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
 import com.adobe.qe.toughday.internal.core.distributedtd.splitters.PhaseSplitter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.*;
+
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.HTTP_REQUEST_RETRIES;
 
 /**
  * Class responsible for balancing the work between the agents running the cluster
@@ -42,22 +45,19 @@ public class TaskBalancer {
         EXECUTING               // work redistribution process is executing right now
     }
 
+    /**
+     * Returns a list with all the agents that failed to respond to the heartbeat request sent
+     * by the driver.
+     */
     public ConcurrentLinkedQueue<String> getInactiveAgents() {
         return this.inactiveAgents;
     }
 
-    public ScheduledExecutorService getRebalanceScheduler() {
-        return this.rebalanceScheduler;
-    }
+    private TaskBalancer() {}
 
-    public void setState(RebalanceState state) {
-        this.state = state;
-    }
-
-    public RebalanceState getState() {
-        return this.state;
-    }
-
+    /**
+     * Returns a singleton instance of this class.
+     */
     public static TaskBalancer getInstance() {
         if (instance == null) {
             instance = new TaskBalancer();
@@ -73,19 +73,19 @@ public class TaskBalancer {
         return map;
     }
 
-    public void addNewAgent(String ipAddress) {
-        this.recentlyAddedAgents.add(ipAddress);
+    private void addNewAgent(String agentIdentifier) {
+        this.recentlyAddedAgents.add(agentIdentifier);
     }
 
-    public void addInactiveAgent(String agentName) {
-        this.inactiveAgents.add(agentName);
+    private void addInactiveAgent(String agentIdentifier) {
+        this.inactiveAgents.add(agentIdentifier);
     }
 
     private void sendInstructionsToOldAgents(Map<String, Phase> phases,
                                              Queue<String> activeAgents) {
         ObjectMapper mapper = new ObjectMapper();
 
-        // convert each phase into instructions for olg agents to update their configuration
+        // convert each phase into instructions for old agents to update their configuration
         activeAgents.stream()
             .filter(ipAddress -> !this.inactiveAgents.contains(ipAddress)) // filter agents that become inactive
             .forEach(ipAddress -> {
@@ -103,11 +103,11 @@ public class TaskBalancer {
                 try {
                     String instructionMessage = mapper.writeValueAsString(redistributionInstructions);
                     LOG.info("[redistribution] Sending " + instructionMessage + " to agent " + ipAddress);
-                    boolean successfullySentInstructions =
-                            this.httpUtils.sendSyncHttpRequest(instructionMessage, agentURI);
-                    if (!successfullySentInstructions) {
-                        /* redistribution will be triggered as soon as this agent fails to respond to heartbeat
-                         * request
+                    HttpResponse response =
+                            this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, instructionMessage, agentURI, HTTP_REQUEST_RETRIES);
+                    if (response == null) {
+                        /* redistribution will be automatically triggered as soon as this agent fails to respond to
+                         * heartbeat request
                          */
                         LOG.warn("Redistribution instructions could not be sent to agent " + ipAddress + ". ");
                     }
@@ -131,21 +131,23 @@ public class TaskBalancer {
             String yamlTask = dumpConfig.generateConfigurationObject();
 
             LOG.info("[redistribution] sending execution request + " + yamlTask + " to new agent " + newAgentIpAddress);
-            boolean successfullySentRequest = this.httpUtils
-                    .sendSyncHttpRequest(yamlTask, Agent.getSubmissionTaskPath(newAgentIpAddress),  3);
+            HttpResponse response = this.httpUtils
+                    .sendHttpRequest(HttpUtils.POST_METHOD, yamlTask, Agent.getSubmissionTaskPath(newAgentIpAddress),  3);
 
-            if (!successfullySentRequest) {
+            if (response == null) {
+                /* the assumption is that the agent will fail to answer to heartbeat request => work will be
+                 * automatically redistributed when this happens.
+                 */
                 LOG.info("Failed to send task to new agent " + newAgentIpAddress + ".");
-                // TODO schedule redistribution
             }
 
         });
     }
 
-    private void requestRebalancing(DistributedPhaseInfo distributedPhaseInfo,
+    private void requestRebalancing(DistributedPhaseMonitor distributedPhaseMonitor,
                                     Queue<String> activeAgents, List<String> recentlyAddedAgents,
                                     Configuration configuration) throws CloneNotSupportedException {
-        Phase phase = distributedPhaseInfo.getPhase();
+        Phase phase = distributedPhaseMonitor.getPhase();
 
         // check if one agent failed to respond to heartbeat before TD execution started.
         if (phase == null) {
@@ -153,9 +155,9 @@ public class TaskBalancer {
         }
 
         // start by updating the number of tests that are left to be executed by the agents
-        distributedPhaseInfo.updateCountPerTest();
+        distributedPhaseMonitor.updateCountPerTest();
         Map<String, Phase> phases = this.phaseSplitter.splitPhaseForRebalancingWork(phase, new ArrayList<>(activeAgents),
-                new ArrayList<>(recentlyAddedAgents), distributedPhaseInfo.getPhaseStartTime());
+                new ArrayList<>(recentlyAddedAgents), distributedPhaseMonitor.getPhaseStartTime());
 
         sendInstructionsToOldAgents(phases, activeAgents);
         sendExecutionQueriesToNewAgents(recentlyAddedAgents, phases, configuration);
@@ -163,14 +165,15 @@ public class TaskBalancer {
     }
 
     private void excludeInactiveAgents(List<String> agentsToBeExcluded, Queue<String> activeAgents,
-                                       DistributedPhaseInfo distributedPhaseInfo) {
+                                       DistributedPhaseMonitor distributedPhaseMonitor) {
         LOG.info("[redistribution] agents to be excluded " + agentsToBeExcluded.toString());
         agentsToBeExcluded.forEach(activeAgents::remove);
         agentsToBeExcluded.forEach(this.inactiveAgents::remove);
-        agentsToBeExcluded.forEach(distributedPhaseInfo::removeAgentFromExecutionsMap);
+        // we should not wait for task completion since the agent running it left the cluster
+        agentsToBeExcluded.forEach(distributedPhaseMonitor::removeAgentFromActiveTDRunners);
     }
 
-    public void rebalanceWork(DistributedPhaseInfo distributedPhaseInfo,
+    private void rebalanceWork(DistributedPhaseMonitor distributedPhaseMonitor,
                               Queue<String> activeAgents,
                               Configuration configuration,
                               DistributedConfig distributedConfig) {
@@ -180,21 +183,21 @@ public class TaskBalancer {
         List<String> inactiveAgents = new ArrayList<>(this.inactiveAgents);
 
         // remove all agents who failed answering the heartbeat request in the past
-        excludeInactiveAgents(inactiveAgents, activeAgents, distributedPhaseInfo);
+        excludeInactiveAgents(inactiveAgents, activeAgents, distributedPhaseMonitor);
         LOG.info("[Redistribution] Starting....");
 
         try {
-          requestRebalancing(distributedPhaseInfo, activeAgents, newAgents, configuration);
+          requestRebalancing(distributedPhaseMonitor, activeAgents, newAgents, configuration);
         } catch (CloneNotSupportedException e) {
             e.printStackTrace();
         }
 
-        distributedPhaseInfo.resetExecutions();
+        distributedPhaseMonitor.resetExecutions();
         LOG.info("[Redistribution] Finished redistributing the work");
 
         // mark recently added agents as active agents executing tasks
         activeAgents.addAll(newAgents);
-        newAgents.forEach(distributedPhaseInfo::registerAgentRunningTD);
+        newAgents.forEach(distributedPhaseMonitor::registerAgentRunningTD);
         newAgents.forEach(ipAddress -> this.recentlyAddedAgents.remove(ipAddress));
 
         if (this.state == RebalanceState.RESCHEDULED_REQUIRED) {
@@ -202,12 +205,44 @@ public class TaskBalancer {
             LOG.info("[driver] Scheduling delayed redistribution process for agents " + this.recentlyAddedAgents.toString());
             this.rebalanceScheduler.schedule(() -> {
                 LOG.info("[Redistribution] starting delayed work redistribution process");
-                rebalanceWork(distributedPhaseInfo, activeAgents, configuration, distributedConfig);
+                rebalanceWork(distributedPhaseMonitor, activeAgents, configuration, distributedConfig);
             }, distributedConfig.getRedistributionWaitTimeInSeconds(), TimeUnit.SECONDS);
         } else {
             this.state = RebalanceState.UNNECESSARY;
         }
 
     }
+
+    public void rebalanceWork(DistributedPhaseMonitor distributedPhaseMonitor,
+                              Queue<String> activeAgents,
+                              Configuration configuration,
+                              DistributedConfig distributedConfig,
+                              String agentIdentifier,
+                              boolean activeAgent) {
+
+        if (activeAgent) {
+            this.addNewAgent(agentIdentifier);
+        } else {
+            this.addInactiveAgent(agentIdentifier);
+        }
+
+        if (this.state == RebalanceState.UNNECESSARY) {
+            this.state = RebalanceState.SCHEDULED;
+            LOG.info("Scheduling redistribution process to start in " +
+                    configuration.getDistributedConfig().getRedistributionWaitTimeInSeconds() + " seconds.");
+
+            // schedule work redistribution process
+            this.rebalanceScheduler
+                    .schedule(() -> rebalanceWork(distributedPhaseMonitor, activeAgents, configuration, distributedConfig),
+                            configuration.getDistributedConfig().getRedistributionWaitTimeInSeconds(),
+                            TimeUnit.SECONDS);
+        } else if (this.state == RebalanceState.EXECUTING) {
+            LOG.info("Delay redistribution process is required");
+            this.state = RebalanceState.RESCHEDULED_REQUIRED;
+        }
+
+    }
+
+
 
 }

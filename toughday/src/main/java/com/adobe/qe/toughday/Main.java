@@ -54,28 +54,22 @@ public class Main {
             if (configuration.executeInDitributedMode()) {
                 new ExecutionTrigger(configuration).triggerExecution();
                 System.exit(0);
-            }
-
-            if (configuration.getDistributedConfig().getAgent()) {
+            } else if (configuration.getDistributedConfig().getAgent()) {
                 Agent agent = new Agent();
                 agent.start();
-                System.exit(0);
-            }
-
-            if (configuration.getDistributedConfig().getDriver()) {
+            } else if (configuration.getDistributedConfig().getDriver()) {
                 Driver driver = new Driver(configuration);
                 driver.run();
+            } else {
+                Engine engine = new Engine(configuration);
+                engine.runTests();
+
+                System.exit(0);
             }
-
-            Engine engine = new Engine(configuration);
-            engine.runTests();
-
-            System.exit(0);
         } catch (Throwable t) {
             LOG.error("Error encountered: "
                     + (t.getMessage() != null ? t.getMessage() : "Please check toughday.log for more information."));
             LogManager.getLogger(Engine.class).error("Error encountered", t);
         }
-        System.exit(0);
     }
 }

@@ -41,6 +41,9 @@ public class YamlBuilder {
         instance = new Yaml(constructor, representer, dumperOptions);
     }
 
+    /**
+     * Getter for the Yaml instance.
+     */
     public static Yaml getYamlInstance() {
         if (instance == null) {
             buildInstance();

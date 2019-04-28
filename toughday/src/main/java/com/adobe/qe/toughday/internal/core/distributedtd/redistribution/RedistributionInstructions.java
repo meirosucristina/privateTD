@@ -9,7 +9,7 @@ public class RedistributionInstructions {
     private Map<String, Long> counts;
     private Map<String, String> runModeProperties;
 
-    // dummy constructor, required for Jackson
+    // dummy constructor, required for dumping the class
     public RedistributionInstructions() { }
 
     public RedistributionInstructions(Map<String, Long> counts, Map<String, String> runModeProperties) {

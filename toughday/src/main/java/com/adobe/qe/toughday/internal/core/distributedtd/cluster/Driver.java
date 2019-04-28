@@ -5,19 +5,21 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
-import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseInfo;
+import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseMonitor;
 import com.adobe.qe.toughday.internal.core.distributedtd.tasks.HeartbeatTask;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.TaskBalancer;
 import com.adobe.qe.toughday.internal.core.distributedtd.splitters.PhaseSplitter;
+import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.*;
 
-import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
-import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.*;
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.HTTP_REQUEST_RETRIES;
+import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.URL_PREFIX;
+import static com.adobe.qe.toughday.internal.core.engine.Engine.logGlobal;
 import static spark.Spark.*;
 
 /**
@@ -27,62 +29,98 @@ public class Driver {
     // routes
     public static final String EXECUTION_PATH = "/config";
     private static final String REGISTER_PATH = "/registerAgent";
-    private static final String PHASE_FINISHED_BY_AGENT = "/phaseFinished";
+    private static final String PHASE_FINISHED_BY_AGENT_PATH = "/phaseFinished";
+    private static final String HEALTH_PATH = "/health";
+    private static final String SAMPLE_CONTENT_ACK_PATH = "/contentAck";
 
     private static final String HOSTNAME = "driver";
-    private static final int HTTP_REQUEST_RETRIES = 3;
+    private static final String PORT = "80";
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService executorService = Executors.newFixedThreadPool(1);
     private final HttpUtils httpUtils = new HttpUtils();
     private final Queue<String> agents = new ConcurrentLinkedQueue<>();
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
-    private DistributedPhaseInfo distributedPhaseInfo = new DistributedPhaseInfo();
+    private DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
     private Configuration configuration;
     private Configuration driverConfiguration;
+    private final Object object = new Object();
 
     public Driver(Configuration configuration) {
         this.driverConfiguration = configuration;
     }
 
     public static String getAgentRegisterPath() {
-        return URL_PREFIX + HOSTNAME + ":80" + REGISTER_PATH;
+        return URL_PREFIX + HOSTNAME + ":" + PORT + REGISTER_PATH;
     }
 
     public static String getPhaseFinishedByAgentPath() {
-        return URL_PREFIX + HOSTNAME + ":80" + PHASE_FINISHED_BY_AGENT;
+        return URL_PREFIX + HOSTNAME + ":" + PORT + PHASE_FINISHED_BY_AGENT_PATH;
+    }
+
+    public static String getSampleContentAckPath() {
+        return URL_PREFIX + HOSTNAME + ":" + PORT + SAMPLE_CONTENT_ACK_PATH;
+    }
+
+    private void waitForSampleContentToBeInstalled() {
+        Future<?> future = executorService.submit(() -> {
+            while (true) {
+                try {
+                    synchronized (object) {
+                        object.wait();
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    // ignore and continue waiting for ack
+                }
+            }
+        });
+
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            LOG.error("Failed to install ToughDay sample content. Execution will be stopped.");
+            finishDistributedExecution();
+            System.exit(-1);
+        }
     }
 
     private void handleToughdaySampleContent(Configuration configuration) {
+        logGlobal("Installing ToughDay 2 Content Package...");
         GlobalArgs globalArgs = configuration.getGlobalArgs();
 
-        if (globalArgs.getInstallSampleContent() && !globalArgs.getDryRun()) {
-            try {
-                installToughdayContentPackage(globalArgs);
-                globalArgs.setInstallSampleContent("false");
-            } catch (Exception e) {
-                LOG.info("Failed to install sample content. Execution will pe stopped.");
-                finishDistributedExecution();
-                System.exit(-1);
-            }
-        }
-    }
-
-    private boolean waitForPhaseCompletion() {
-        int retries = 3;
-
-        while (retries > 0) {
-            try {
-                this.distributedPhaseInfo.waitForPhaseCompletion();
-                return true;
-            } catch (ExecutionException | InterruptedException e) {
-                retries--;
-            }
+        if (globalArgs.getDryRun() || !globalArgs.getInstallSampleContent()) {
+            return;
         }
 
-        LOG.warn("Exception occurred while waiting for the completion of the current phase. The remaining " +
-                "of the phases will no longer be executed");
-        return false;
+        HttpResponse agentResponse = null;
+        List<String> agentsCopy = new ArrayList<>(this.agents);
+
+        while (agentResponse == null && agentsCopy.size() > 0) {
+            // pick one agent to install the sample content
+            String agentIpAddress = agentsCopy.remove(0);
+            String URI = Agent.getInstallSampleContentPath(agentIpAddress);
+            LOG.info("Installing sample content request was sent to agent " + agentIpAddress);
+
+            YamlDumpConfiguration dumpConfig = new YamlDumpConfiguration(configuration);
+            String yamlTask = dumpConfig.generateConfigurationObject();
+
+            agentResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, yamlTask, URI, HTTP_REQUEST_RETRIES);
+        }
+
+        if (agentResponse == null) {
+            LOG.error("Failed to sent request to agents to install the sample content. Execution will be stopped.");
+            finishDistributedExecution();
+            System.exit(-1);
+        }
+
+        // we should wait until the we receive confirmation that the sample content was successfully installed
+        waitForSampleContentToBeInstalled();
+
+        logGlobal("Finished installing ToughDay 2 Content Package.");
+        globalArgs.setInstallSampleContent("false");
+
     }
 
     private void mergeDistributedConfigParams(Configuration configuration) {
@@ -95,24 +133,32 @@ public class Driver {
 
         // cancel heartbeat task and reschedule it with the new period
         this.heartbeatScheduler.shutdownNow();
-
         this.driverConfiguration.getDistributedConfig().merge(configuration.getDistributedConfig());
         scheduleHeartbeatTask();
     }
 
     private void finishAgents() {
         agents.forEach(agentIp -> {
-            httpUtils.sendSyncHttpRequest("", Agent.getFinishPath(agentIp), 3);
             LOG.info("[Driver] Finishing agent " + agentIp);
+            HttpResponse response =
+                    httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, "", Agent.getFinishPath(agentIp), HTTP_REQUEST_RETRIES);
+            if (response == null) {
+                // the assumption is that the agent will be killed when he fails to respond to heartbeat request
+                LOG.warn("Driver could not finish the execution on agent " + agentIp + ".");
+            }
         });
+
+        agents.clear();
     }
 
     private void finishDistributedExecution() {
-        // finish agents
-        this.finishAgents();
+        executorService.shutdownNow();
 
         // finish tasks
         this.heartbeatScheduler.shutdownNow();
+
+        // finish agents
+        this.finishAgents();
     }
 
     private void handleExecutionRequest(Configuration configuration) {
@@ -124,7 +170,7 @@ public class Driver {
         for (Phase phase : configuration.getPhases()) {
             try {
                 Map<String, Phase> tasks = phaseSplitter.splitPhase(phase, new ArrayList<>(agents));
-                this.distributedPhaseInfo.setPhase(phase);
+                this.distributedPhaseMonitor.setPhase(phase);
 
                 for (String agentIp : agents) {
                     configuration.setPhases(Collections.singletonList(tasks.get(agentIp)));
@@ -135,22 +181,26 @@ public class Driver {
 
                     /* send query to agent and register running task */
                     String URI = Agent.getSubmissionTaskPath(agentIp);
-                    boolean taskSuccessfullySent = this.httpUtils.sendSyncHttpRequest(yamlTask, URI, HTTP_REQUEST_RETRIES);
-                    if (taskSuccessfullySent) {
-                        this.distributedPhaseInfo.registerAgentRunningTD(agentIp);
-                    } else {
-                        LOG.info("Task\n" + yamlTask + " could not be submitted to agent " + agentIp +
-                                ". Work will be rebalanced.");
-                    }
+                    HttpResponse response = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, yamlTask, URI, HTTP_REQUEST_RETRIES);
 
-                    LOG.info("Task was submitted to agent " + agentIp);
+                    if (response != null) {
+                        this.distributedPhaseMonitor.registerAgentRunningTD(agentIp);
+                        LOG.info("Task was submitted to agent " + agentIp);
+                    } else {
+                        /* the assumption is that the agent is no longer active in the cluster and he will fail to respond
+                         * to the heartbeat request sent by the driver. This will automatically trigger process of
+                         * redistributing the work
+                         * */
+                        LOG.info("Task\n" + yamlTask + " could not be submitted to agent " + agentIp +
+                                ". Work will be rebalanced once the agent fails to respond to heartbeat request.");
+                    }
                 }
 
                 // al execution queries were sent => set phase execution start time
-                this.distributedPhaseInfo.setPhaseStartTime(System.currentTimeMillis());
+                this.distributedPhaseMonitor.setPhaseStartTime(System.currentTimeMillis());
 
                 // we should wait until all agents complete the current tasks in order to execute phases sequentially
-                if (!waitForPhaseCompletion()) {
+                if (!this.distributedPhaseMonitor.waitForPhaseCompletion(3)) {
                     break;
                 }
 
@@ -171,7 +221,7 @@ public class Driver {
 
     private void scheduleHeartbeatTask() {
         // we should periodically send heartbeat messages from driver to all the agents
-        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseInfo,
+        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor,
                         this.configuration, this.driverConfiguration),
                 0, this.driverConfiguration.getDistributedConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
     }
@@ -193,14 +243,24 @@ public class Driver {
             return "";
         }));
 
-        get("/health", ((request, response) -> "Healthy"));
+        get(HEALTH_PATH, ((request, response) -> "Healthy"));
+
+        post(SAMPLE_CONTENT_ACK_PATH, ((response, request) -> {
+            LOG.info("Received ack from agent");
+            synchronized (object) {
+                LOG.info("Notified");
+                object.notify();
+            }
+
+            return "";
+        }));
 
         /* expose http endpoint to allow agents to announce when they finished executing the current phase */
-        post(PHASE_FINISHED_BY_AGENT, ((request, response) -> {
+        post(PHASE_FINISHED_BY_AGENT_PATH, ((request, response) -> {
             String agentIp = request.body();
 
             LOG.info("Agent " + agentIp + " finished executing the current phase.");
-            this.distributedPhaseInfo.removeAgentFromActiveTDRunners(agentIp);
+            this.distributedPhaseMonitor.removeAgentFromActiveTDRunners(agentIp);
 
             return "";
         }));
@@ -210,39 +270,18 @@ public class Driver {
             String agentIp = request.body();
 
             LOG.info("[driver] Registered agent with ip " + agentIp);
-            if (!this.distributedPhaseInfo.isPhaseExecuting()) {
+            if (!this.distributedPhaseMonitor.isPhaseExecuting()) {
                 agents.add(agentIp);
                 LOG.info("[driver] active agents " + agents.toString());
                 return "";
             }
 
-            taskBalancer.addNewAgent(agentIp);
-
-            if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.EXECUTING) {
-                // work redistribution will be delayed until the current redistribution process is finished
-                LOG.info("[driver] Delay redistribution process for agent " + agentIp);
-                this.taskBalancer.setState(TaskBalancer.RebalanceState.RESCHEDULED_REQUIRED);
-                this.taskBalancer.addNewAgent(agentIp);
-
-            } else if (this.taskBalancer.getState() == TaskBalancer.RebalanceState.UNNECESSARY) {
-                this.taskBalancer.setState(TaskBalancer.RebalanceState.SCHEDULED);
-                LOG.info("[driver] Scheduling redistribution process to start in " +
-                        configuration.getDistributedConfig().getRedistributionWaitTimeInSeconds() + " seconds.");
-
-                // schedule redistribution process
-                this.taskBalancer.getRebalanceScheduler().schedule(() -> taskBalancer.rebalanceWork(
-                        distributedPhaseInfo,
-                        agents, configuration, driverConfiguration.getDistributedConfig()),
-                        configuration.getDistributedConfig().getRedistributionWaitTimeInSeconds(),
-                        TimeUnit.SECONDS);
-            }
+            this.taskBalancer.rebalanceWork(distributedPhaseMonitor, agents, configuration,
+                                            driverConfiguration.getDistributedConfig(), agentIp, true);
 
             return "";
         });
 
         scheduleHeartbeatTask();
-
-        /* wait for requests */
-        while (true) { }
     }
 }
