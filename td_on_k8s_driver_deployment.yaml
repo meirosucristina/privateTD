@@ -1,25 +1,30 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: driver
 spec:
+  selector:
+    matchLabels:
+      app: toughday-on-K8s-driver
   template:
     metadata:
       labels:
-        app: distributed-toughday-driver
+        app: toughday-on-K8s-driver
     spec:
       containers:
-      - image: <TD driver docker image>
-        name: driver-container
-        ports:
-        - containerPort: 4567
-        - containerPort: 80
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 4567
-          initialDelaySeconds: 20
-          periodSeconds: 3
+        - image: "toughdaycr.azurecr.io/driver:latest"
+          name: driver-container
+          ports:
+            - containerPort: 4567
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4567
+            initialDelaySeconds: 20
+            periodSeconds: 3
+      imagePullSecrets:
+        - name: regcred
 
 ---
 
@@ -29,12 +34,12 @@ metadata:
   name: driver
 spec:
   ports:
-  - port: 80
-    protocol: TCP
-    targetPort: 4567
-    name: http
+    - port: 80
+      protocol: TCP
+      targetPort: 4567
+      name: http
   selector:
-    app: distributed-toughday-driver
+    app: toughday-on-K8s-driver
 
 ---
 apiVersion: extensions/v1beta1
@@ -47,9 +52,9 @@ metadata:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
 spec:
   rules:
-  - http:
-      paths:
-      - backend:
-          serviceName: driver
-          servicePort: 80
-        path: /config
+    - http:
+        paths:
+          - backend:
+              serviceName: driver
+              servicePort: 80
+            path: /config
