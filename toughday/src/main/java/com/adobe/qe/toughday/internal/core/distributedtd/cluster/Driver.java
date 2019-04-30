@@ -248,7 +248,6 @@ public class Driver {
         post(SAMPLE_CONTENT_ACK_PATH, ((response, request) -> {
             LOG.info("Received ack from agent");
             synchronized (object) {
-                LOG.info("Notified");
                 object.notify();
             }
 

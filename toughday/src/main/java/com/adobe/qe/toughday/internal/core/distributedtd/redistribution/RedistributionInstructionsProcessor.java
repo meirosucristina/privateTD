@@ -7,7 +7,6 @@ import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.runmodes
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import spark.Request;
 
 import java.io.IOException;
 import java.util.Map;
@@ -17,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *  Class responsible for processing the rebalancing request received by an agent from the driver when the
  *  work must be rebalanced.
  */
-public class RedistributionRequestProcessor {
+public class RedistributionInstructionsProcessor {
     protected static final Logger LOG = LogManager.getLogger(ConstantLoadRunModeBalancer.class);
 
     private void processTestSuiteChanges(Map<String, Long> counts, Phase phase) {
@@ -55,21 +54,19 @@ public class RedistributionRequestProcessor {
 
     /**
      * Method used for processing the rebalance request.
-     * @param request : the request to be processed
+     * @param jsonInstructions : redistribution instructions received from the driver
      * @param phase : the current phase being executed by the agents.
-     * @throws IOException : if the body of the request does not have the appropriate format.
+     * @throws IOException : if the instructions don't have the appropriate format.
      */
-    public void processRequest(Request request, Phase phase) throws IOException {
-        if (phase == null) {
-            throw new IllegalStateException("Phase must not be null during work redistribution process.");
+    public void processInstructions(String jsonInstructions, Phase phase) throws IOException {
+        if (phase == null || jsonInstructions == null) {
+            throw new IllegalArgumentException("Phase and redistribution instructions must not be null during work " +
+                    "redistribution process.");
         }
 
-        String jsonContent = request.body();
         ObjectMapper objectMapper = new ObjectMapper();
-
-        LOG.info("[Agent] Started processing rebalance instructions");
         RedistributionInstructions redistributionInstructions =
-                objectMapper.readValue(jsonContent, RedistributionInstructions.class);
+                objectMapper.readValue(jsonInstructions, RedistributionInstructions.class);
 
         // update values for each modified property
         processRunModeChanges(redistributionInstructions, phase.getRunMode());

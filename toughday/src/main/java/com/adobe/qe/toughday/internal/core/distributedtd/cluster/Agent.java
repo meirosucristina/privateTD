@@ -6,7 +6,7 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.PhaseParams;
 import com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
-import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.RedistributionRequestProcessor;
+import com.adobe.qe.toughday.internal.core.distributedtd.redistribution.RedistributionInstructionsProcessor;
 import com.google.gson.Gson;
 import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
@@ -67,7 +67,7 @@ public class Agent {
 
     private Engine engine;
     private String ipAddress = "";
-    private final RedistributionRequestProcessor redistributionRequestProcessor = new RedistributionRequestProcessor();
+    private final RedistributionInstructionsProcessor redistributionInstructionsProcessor = new RedistributionInstructionsProcessor();
 
     private boolean announcePhaseCompletion() {
         /* the current master might be dead so we should retry this for a certain amount of time before shutting
@@ -178,7 +178,7 @@ public class Agent {
 
             String instructionsMessage = request.body();
             LOG.info("[Agent] Received " + instructionsMessage  + " from driver");
-            this.redistributionRequestProcessor.processRequest(request, this.engine.getCurrentPhase());
+            this.redistributionInstructionsProcessor.processInstructions(instructionsMessage, this.engine.getCurrentPhase());
 
             return "";
         })));

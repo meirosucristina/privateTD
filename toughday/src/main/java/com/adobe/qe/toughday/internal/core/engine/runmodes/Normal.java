@@ -165,10 +165,18 @@ public class Normal implements RunMode, Cloneable {
     }
 
     public boolean cancelPeriodicTask() {
-        return this.scheduledFuture.cancel(true);
+        if (this.scheduledFuture != null) {
+            return this.scheduledFuture.cancel(true);
+        }
+
+        return true;
     }
 
     public void schedulePeriodicTask() {
+        if (this.scheduledFuture == null) {
+            return;
+        }
+
         if (this.start < this.end) {
             // execute 'rate' workers every 'interval'
             this.scheduledFuture = this.rampingScheduler.scheduleAtFixedRate(this.getRampUpRunnable(this.engine,
