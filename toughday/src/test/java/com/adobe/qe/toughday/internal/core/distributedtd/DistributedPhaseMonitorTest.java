@@ -1,5 +1,7 @@
 package com.adobe.qe.toughday.internal.core.distributedtd;
 
+import com.adobe.qe.toughday.MockTest;
+import com.adobe.qe.toughday.internal.core.ReflectionsContainer;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
@@ -14,11 +16,15 @@ public class DistributedPhaseMonitorTest {
 
     private List<String> cmdLineArgs;
     private final DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
+    private static ReflectionsContainer reflections = ReflectionsContainer.getInstance();
+
 
     @BeforeClass
     public static void onlyOnce() {
         System.setProperty("logFileName", ".");
         ((LoggerContext) LogManager.getContext(false)).reconfigure();
+
+        reflections.getTestClasses().put("MockTest", MockTest.class);
     }
 
 
@@ -47,7 +53,7 @@ public class DistributedPhaseMonitorTest {
 
     @Test
     public void testUpdateCountPerTest() throws Exception {
-        cmdLineArgs.addAll(Arrays.asList("--add", "CreateUserTest", "count=400"));
+        cmdLineArgs.addAll(Arrays.asList("--add", "MockTest", "count=400"));
         Configuration configuration = new Configuration(cmdLineArgs.toArray(new String[0]));
         List<String> mockAgents = Arrays.asList("Agent1", "Agent2");
         this.distributedPhaseMonitor.setPhase(configuration.getPhases().get(0));
@@ -59,8 +65,8 @@ public class DistributedPhaseMonitorTest {
            put(mockAgents.get(1), 100L);
         }};
 
-        executionsPerTest.put("CreateUserTest", executionsPerAgent);
-        Assert.assertEquals(200L, (long) this.distributedPhaseMonitor.getExecutionsPerTest().get("CreateUserTest"));
+        executionsPerTest.put("MockTest", executionsPerAgent);
+        Assert.assertEquals(200L, (long) this.distributedPhaseMonitor.getExecutionsPerTest().get("MockTest"));
     }
 
     @Test

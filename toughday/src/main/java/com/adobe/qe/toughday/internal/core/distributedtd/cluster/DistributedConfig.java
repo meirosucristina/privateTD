@@ -10,12 +10,14 @@ import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 public class DistributedConfig {
     private static final String DEFAULT_HEARTBEAT_INTERVAL = "5s";
     private static final String DEFAULT_REDISTRIBUTION_WAIT_TIME = "3s";
+    private static final String DEFAULT_CLUSTER_NAMESPACE = "default";
 
     private boolean agent = false;
     private boolean driver = false;
     private String driverIp = null;
     private String heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
     private String redistributionWaitTime = DEFAULT_REDISTRIBUTION_WAIT_TIME;
+    private String clusterNamespace = DEFAULT_CLUSTER_NAMESPACE;
 
     @ConfigArgSet(required = false, desc = "The public ip address of the cluster. The driver" +
             " service must be accessible at this address. This property is required when running in distributed mode.")
@@ -68,6 +70,17 @@ public class DistributedConfig {
     @ConfigArgGet
     public String getRedistributionWaitTime() {
         return this.redistributionWaitTime;
+    }
+
+    @ConfigArgSet(required = false, defaultValue = DEFAULT_CLUSTER_NAMESPACE, desc = "The namespace in the cluster " +
+            " where the resources(agents and drivers) were deployed.")
+    public void setClusterNamespace(String clusterNamespace) {
+        this.clusterNamespace = clusterNamespace;
+    }
+
+    @ConfigArgGet
+    public String getClusterNamespace() {
+        return this.clusterNamespace;
     }
 
     public long getRedistributionWaitTimeInSeconds() {

@@ -32,6 +32,10 @@ public class Main {
     }
 
     public static void main(String[] args) {
+        /*String hostname="driver-0.default.svc.cluster.local";
+        String simpleName = hostname.substring(0, hostname.indexOf(".default"));
+
+        System.out.println(simpleName);*/
         CliParser cliParser = new CliParser();
         System.out.println();
 

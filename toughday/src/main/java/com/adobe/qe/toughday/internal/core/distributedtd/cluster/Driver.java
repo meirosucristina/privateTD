@@ -3,6 +3,7 @@ package com.adobe.qe.toughday.internal.core.distributedtd.cluster;
 import com.adobe.qe.toughday.internal.core.config.Configuration;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 import com.adobe.qe.toughday.internal.core.config.parsers.yaml.YamlDumpConfiguration;
+import com.adobe.qe.toughday.internal.core.distributedtd.tasks.MasterHeartbeatTask;
 import com.adobe.qe.toughday.internal.core.engine.Engine;
 import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.distributedtd.DistributedPhaseMonitor;
@@ -13,7 +14,10 @@ import com.adobe.qe.toughday.internal.core.distributedtd.splitters.PhaseSplitter
 import org.apache.http.HttpResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import spark.Spark;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -32,35 +36,106 @@ public class Driver {
     private static final String PHASE_FINISHED_BY_AGENT_PATH = "/phaseFinished";
     private static final String HEALTH_PATH = "/health";
     private static final String SAMPLE_CONTENT_ACK_PATH = "/contentAck";
+    private static final String MASTER_ELECTION_PATH = "/masterElection";
+    private static final String VOTE_MASTER = "/voteMaster";
+    private static final String ANNOUNCE_MASTER_PATH = "/announceMaster";
 
-    private static final String HOSTNAME = "driver";
-    private static final String PORT = "80";
+    public static final String SVC_NAME = "driver";
+    private static final String SVC_PORT = "80";
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService executorService = Executors.newFixedThreadPool(1);
     private final HttpUtils httpUtils = new HttpUtils();
-    private final Queue<String> agents = new ConcurrentLinkedQueue<>();
     private final TaskBalancer taskBalancer = TaskBalancer.getInstance();
     private DistributedPhaseMonitor distributedPhaseMonitor = new DistributedPhaseMonitor();
     private Configuration configuration;
-    private Configuration driverConfiguration;
     private final Object object = new Object();
+    private DriverState driverState;
 
     public Driver(Configuration configuration) {
-        this.driverConfiguration = configuration;
+        try {
+            String hostname = InetAddress.getLocalHost().getHostName();
+            this.driverState = new DriverState(hostname, configuration);
+        } catch (UnknownHostException e) {
+            System.exit(-1);
+        }
     }
 
     public static String getAgentRegisterPath() {
-        return URL_PREFIX + HOSTNAME + ":" + PORT + REGISTER_PATH;
+        return URL_PREFIX + SVC_NAME + ":" + SVC_PORT + REGISTER_PATH;
+    }
+
+    private static String getAgentRegisterPath(String driverHostname, boolean forwardReq) {
+        return URL_PREFIX + driverHostname + ":4567" + REGISTER_PATH + "?forward=" + forwardReq;
+
     }
 
     public static String getPhaseFinishedByAgentPath() {
-        return URL_PREFIX + HOSTNAME + ":" + PORT + PHASE_FINISHED_BY_AGENT_PATH;
+        return URL_PREFIX + SVC_NAME + ":" + SVC_PORT + PHASE_FINISHED_BY_AGENT_PATH;
     }
 
     public static String getSampleContentAckPath() {
-        return URL_PREFIX + HOSTNAME + ":" + PORT + SAMPLE_CONTENT_ACK_PATH;
+        return URL_PREFIX + SVC_NAME + ":" + SVC_PORT + SAMPLE_CONTENT_ACK_PATH;
+    }
+
+    public static String getHealthPath(String driverHostName) {
+        return URL_PREFIX + driverHostName + ":4567" + HEALTH_PATH;
+    }
+
+    private void masterElection() {
+        int choice = Integer.MAX_VALUE;
+
+        for (int i = this.driverState.getId(); i < this.driverState.getNrDrivers(); i++) {
+            // skip inactive drivers
+            if (this.driverState.getInactiveDrivers().contains(i)) {
+                continue;
+            }
+
+            // chose the minimum id as master
+            if (i < choice) {
+                choice = i;
+            }
+
+            // TODO: solve this corner case later
+            /*// announce all active drivers that the master election process should be triggered
+            HttpResponse httpResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, "", MASTER_ELECTION_PATH,
+                    HTTP_REQUEST_RETRIES);
+            if (httpResponse == null) {
+                // the assumption is that the driver died and he will received the id of the new master once restarted
+                LOG.warn("Failed to inform driver " + SVC_NAME + "-" + i + " that master election process should be" +
+                        "triggered.");
+            }*/
+
+            LOG.info("Driver " + this.driverState.getHostname() + " picked " + SVC_NAME + "-" + choice + " as the new master.");
+            this.driverState.setCurrentState(DriverState.State.PICKED_MASTER);
+
+            // send vote
+            HttpResponse driverResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, "", VOTE_MASTER, HTTP_REQUEST_RETRIES);
+            if (driverResponse != null) {
+                break;
+            }
+
+            LOG.info("Failed to sent master vote to driver " +  SVC_NAME + "-" + choice + ". Restarting the election process...");
+        }
+
+        /*// wait until all the other drivers finished executing the master election process
+        boolean finished = false;
+        Queue<Integer> inactive = new LinkedList<>(this.driverState.getInactiveDrivers());
+        for (int i = 0; i < this.driverState.getNrDrivers(); i++) {
+            if (i == this.driverState.getId() || inactive.contains(i)) {
+                continue;
+            }
+
+            // ping driver to ask for his state
+            HttpResponse driverResponse = this.httpUtils.sendHttpRequest(HttpUtils.GET_METHOD, "", GET_DRIVER_STATE_PATH,
+                    HTTP_REQUEST_RETRIES);
+            String state =  EntityUtils.toString(driverResponse.getEntity());
+            if (driverResponse != null && !state.equals(DriverState.State.PICKED_MASTER)) {
+
+            }
+        }*/
+
     }
 
     private void waitForSampleContentToBeInstalled() {
@@ -95,7 +170,7 @@ public class Driver {
         }
 
         HttpResponse agentResponse = null;
-        List<String> agentsCopy = new ArrayList<>(this.agents);
+        List<String> agentsCopy = new ArrayList<>(this.driverState.getRegisteredAgents());
 
         while (agentResponse == null && agentsCopy.size() > 0) {
             // pick one agent to install the sample content
@@ -124,21 +199,21 @@ public class Driver {
     }
 
     private void mergeDistributedConfigParams(Configuration configuration) {
-        if (this.driverConfiguration.getDistributedConfig().getHeartbeatIntervalInSeconds() ==
+        if (this.driverState.getDriverConfig().getDistributedConfig().getHeartbeatIntervalInSeconds() ==
             this.configuration.getDistributedConfig().getHeartbeatIntervalInSeconds()) {
 
-            this.driverConfiguration.getDistributedConfig().merge(configuration.getDistributedConfig());
+            this.driverState.getDriverConfig().getDistributedConfig().merge(configuration.getDistributedConfig());
             return;
         }
 
         // cancel heartbeat task and reschedule it with the new period
         this.heartbeatScheduler.shutdownNow();
-        this.driverConfiguration.getDistributedConfig().merge(configuration.getDistributedConfig());
+        this.driverState.getDriverConfig().getDistributedConfig().merge(configuration.getDistributedConfig());
         scheduleHeartbeatTask();
     }
 
     private void finishAgents() {
-        agents.forEach(agentIp -> {
+        this.driverState.getRegisteredAgents().forEach(agentIp -> {
             LOG.info("[Driver] Finishing agent " + agentIp);
             HttpResponse response =
                     httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, "", Agent.getFinishPath(agentIp), HTTP_REQUEST_RETRIES);
@@ -148,7 +223,7 @@ public class Driver {
             }
         });
 
-        agents.clear();
+        this.driverState.getRegisteredAgents().clear();
     }
 
     private void finishDistributedExecution() {
@@ -169,10 +244,10 @@ public class Driver {
 
         for (Phase phase : configuration.getPhases()) {
             try {
-                Map<String, Phase> tasks = phaseSplitter.splitPhase(phase, new ArrayList<>(agents));
+                Map<String, Phase> tasks = phaseSplitter.splitPhase(phase, new ArrayList<>(this.driverState.getRegisteredAgents()));
                 this.distributedPhaseMonitor.setPhase(phase);
 
-                for (String agentIp : agents) {
+                for (String agentIp : this.driverState.getRegisteredAgents()) {
                     configuration.setPhases(Collections.singletonList(tasks.get(agentIp)));
 
                     // convert configuration to yaml representation
@@ -221,14 +296,82 @@ public class Driver {
 
     private void scheduleHeartbeatTask() {
         // we should periodically send heartbeat messages from driver to all the agents
-        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.agents, this.distributedPhaseMonitor,
-                        this.configuration, this.driverConfiguration),
-                0, this.driverConfiguration.getDistributedConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
+        heartbeatScheduler.scheduleAtFixedRate(new HeartbeatTask(this.driverState.getRegisteredAgents(), this.distributedPhaseMonitor,
+                        this.configuration, this.driverState.getDriverConfig()),
+                0, this.driverState.getDriverConfig().getDistributedConfig().getHeartbeatIntervalInSeconds(), TimeUnit.SECONDS);
+    }
+
+    private void scheduleMasterHeartbeatTask() {
+        // we should periodically send heartbeat messages from slaves to check id the master is still running
+        this.heartbeatScheduler.scheduleAtFixedRate(new MasterHeartbeatTask(this.driverState), 0,
+                GlobalArgs.parseDurationToSeconds("5s"), TimeUnit.SECONDS);
     }
 
     public void run() {
+
+        /* expose http endpoint the announce the new master */
+        post(ANNOUNCE_MASTER_PATH, ((request, response) -> {
+            int choice = Integer.parseInt(request.body());
+            LOG.info(this.driverState.getHostname() + " was announced that driver-" + choice + " was chosen to be the master.");
+
+            // update current state
+            if (choice == this.driverState.getId()) {
+                this.driverState.setCurrentState(DriverState.State.MASTER);
+            } else {
+                this.driverState.setCurrentState(DriverState.State.SLAVE);
+            }
+
+            this.driverState.resetNrVotes();
+            return "";
+        }));
+
+        post(VOTE_MASTER, ((request, response) -> {
+            this.driverState.increaseNumberOfVotes();
+            LOG.info(this.driverState.getHostname() + " was voted. Total number of votes " + this.driverState.getNrVotes());
+
+            // TODO: maybe compute number of active agents by pinging all agents and count the ones answering
+            if (this.driverState.getNrVotes() >= this.driverState.getNrDrivers() / 2 + 1) {
+                LOG.info(this.driverState.getHostname() + " : " + "announcing drivers that I am the new master");
+
+                // announce this driver as the new master
+                for (int i = 0; i < this.driverState.getNrDrivers(); i++) {
+                    if (this.driverState.getInactiveDrivers().contains(i)) {
+                        continue;
+                    }
+
+                    HttpResponse httpResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, String.valueOf(i), ANNOUNCE_MASTER_PATH,
+                            HTTP_REQUEST_RETRIES);
+                    if (httpResponse == null) {
+                        LOG.error("Unable to announce driver " + SVC_NAME + "-" + i + " who is the new master.");
+                        // TODO: treat this case later
+                    }
+                }
+            }
+
+            return "";
+        }));
+
+        /* expose http endpoint to announce driver that the master election process should be triggered */
+        /*post(MASTER_ELECTION_PATH, ((request, response) -> {
+            if (this.driverState.getCurrentState() == DriverState.State.CHOOSING_MASTER) {
+                return "";
+            }
+
+            this.driverState.setCurrentState(DriverState.State.CHOOSING_MASTER);
+            // mark current master as failed
+            this.driverState.addInactiveDriver(this.driverState.getMasterId());
+            // choose a new master
+            masterElection();
+            return "";
+        }));*/
+
         /* expose http endpoint for running TD with the given configuration */
         post(EXECUTION_PATH, ((request, response) -> {
+            // only master should trigger the execution
+            if (this.driverState.getCurrentState() != DriverState.State.MASTER) {
+                return "";
+            }
+
             String yamlConfiguration = request.body();
             Configuration configuration = new Configuration(yamlConfiguration);
             this.configuration = configuration;
@@ -243,7 +386,7 @@ public class Driver {
             return "";
         }));
 
-        get(HEALTH_PATH, ((request, response) -> "Healthy"));
+        Spark.get(HEALTH_PATH, ((request, response) -> "Healthy"));
 
         post(SAMPLE_CONTENT_ACK_PATH, ((response, request) -> {
             LOG.info("Received ack from agent");
@@ -267,20 +410,44 @@ public class Driver {
         /* expose http endpoint for registering new agents in the cluster */
         post(REGISTER_PATH, (request, response) -> {
             String agentIp = request.body();
-
             LOG.info("[driver] Registered agent with ip " + agentIp);
+
+            if (!request.queryParams().contains("forward") || !request.queryParams("forward").equals("false")) {
+                /* register new agents to all the drivers running in the cluster */
+                for (int i = 0; i < this.driverState.getNrDrivers(); i++) {
+                    /* skip current driver and inactive drivers */
+                    if (i == this.driverState.getId() || this.driverState.getInactiveDrivers().contains(i)) {
+                        continue;
+                    }
+
+                    LOG.info(this.driverState.getHostname() + ": sending agent register request for agent " + agentIp + "" +
+                            "to driver " + this.driverState.getPathForId(i));
+                    HttpResponse regResponse = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, agentIp,
+                            getAgentRegisterPath(this.driverState.getPathForId(i), false), HTTP_REQUEST_RETRIES);
+                    if (regResponse == null) {
+                        // the assumption is that the new driver will receive the full list of active agents after being restarted
+                        LOG.info("Driver " + this.driverState.getHostname() + "failed to send register request for agent " + agentIp +
+                                "to driver " + this.driverState.getPathForId(i));
+                    }
+                }
+            }
+
             if (!this.distributedPhaseMonitor.isPhaseExecuting()) {
-                agents.add(agentIp);
-                LOG.info("[driver] active agents " + agents.toString());
+                this.driverState.registerAgent(agentIp);
+                LOG.info("[driver] active agents " + this.driverState.getRegisteredAgents().toString());
                 return "";
             }
 
-            this.taskBalancer.rebalanceWork(distributedPhaseMonitor, agents, configuration,
-                                            driverConfiguration.getDistributedConfig(), agentIp, true);
+            this.taskBalancer.rebalanceWork(distributedPhaseMonitor, this.driverState.getRegisteredAgents(), configuration,
+                                            this.driverState.getDriverConfig().getDistributedConfig(), agentIp, true);
 
             return "";
         });
 
-        scheduleHeartbeatTask();
+        if (this.driverState.getCurrentState() == DriverState.State.MASTER) {
+            scheduleHeartbeatTask();
+        } else if (this.driverState.getCurrentState() == DriverState.State.SLAVE) {
+            scheduleMasterHeartbeatTask();
+        }
     }
 }
