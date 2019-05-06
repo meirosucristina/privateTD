@@ -79,14 +79,12 @@ public class HttpUtils {
             }
 
             if (checkSuccessfulRequest(response)) {
-                LOG.info("Response to " + URI + " is successful.");
                 return response;
             }
 
             retries--;
         }
 
-        LOG.info("Response to " + URI + " is null.");
         return null;
     }
 
