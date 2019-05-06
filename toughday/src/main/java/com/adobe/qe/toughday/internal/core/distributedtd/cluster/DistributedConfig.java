@@ -5,7 +5,7 @@ import com.adobe.qe.toughday.api.annotations.ConfigArgSet;
 import com.adobe.qe.toughday.internal.core.config.GlobalArgs;
 
 /**
- * Contains all the configurable arguments when running TD distributed on Kubernetes.
+ * Contains all the configurable arguments when running TD distributed.
  */
 public class DistributedConfig {
     private static final String DEFAULT_HEARTBEAT_INTERVAL = "5s";
