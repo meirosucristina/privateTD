@@ -25,6 +25,7 @@ import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
+import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.publishers.CSVPublisher;
 import com.adobe.qe.toughday.publishers.ConsolePublisher;
@@ -107,6 +108,45 @@ public class Configuration {
 
     public ConfigParams getConfigParams() {
         return this.configParams;
+        // loads all classes from the extension jar files using a new class loader.
+    }
+
+    private static void callConfigArgSet(Method method, Object object, Map<String, Object> args, boolean applyDefaults) throws InvocationTargetException, IllegalAccessException {
+        ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
+        if (annotation == null) {
+            return;
+        }
+
+        String property = propertyFromMethod(method.getName());
+        Object value = args.remove(property);
+        if (value == null) {
+            if (requiredFieldsForClassAdded.containsKey(object)
+                    && requiredFieldsForClassAdded.get(object).contains(property)) {
+                return;
+            }
+
+            if (annotation.required()) {
+                throw new IllegalArgumentException("Property \"" + property + "\" is required for class " + object.getClass().getSimpleName());
+            } else if (applyDefaults) {
+                String defaultValue = annotation.defaultValue();
+                if (defaultValue.compareTo("") != 0) {
+                    LOGGER.info("\tSetting property \"" + property + "\" to default value: \"" + defaultValue + "\"");
+                    method.invoke(object, defaultValue);
+                }
+            }
+        } else {
+            if (annotation.required()) {
+                if (requiredFieldsForClassAdded.containsKey(object)) {
+                    requiredFieldsForClassAdded.get(object).add(property);
+                } else {
+                    requiredFieldsForClassAdded.put(object,
+                            new HashSet<>(Collections.singletonList(property)));
+                }
+            }
+            LOGGER.info("\tSetting property \"" + property + "\" to: \"" + value + "\"");
+            //TODO fix this ugly thing: all maps should be String -> String, but snake yaml automatically converts Integers, etc. so for now we call toString.
+            method.invoke(object, value.toString());
+        }
     }
 
     private void handleExtensions(ConfigParams configParams) {
@@ -234,9 +274,23 @@ public class Configuration {
     }
 
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
-        this.configParams = ConfigParams.deepClone(configParams);
         ConfigParams copyOfConfigParams = ConfigParams.deepClone(configParams);
         Map<String, Class> items = new HashMap<>();
+
+        /* check if we should trigger an execution query in the K8S cluster. */
+        if (executeInDitributedMode()) {
+            // sanity check
+            if (configParams.getGlobalParams().get("driverip") == null) {
+                throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
+                        " is required when running TD in distributed mode.");
+            }
+
+            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
+            generateYaml.getGlobals().remove("k8srun");
+            generateYaml.getGlobals().remove("driverip");
+            new ExecutionTrigger(generateYaml.createYamlStringRepresentation(),
+                    String.valueOf(configParams.getGlobalParams().get("driverip"))).triggerExecution();
+        }
 
         // we should load extensions before any configuration object is created.
         handleExtensions(configParams);
@@ -672,45 +726,6 @@ public class Configuration {
         }
         return object;
     }
-
-    private static void callConfigArgSet(Method method, Object object, Map<String, Object> args, boolean applyDefaults) throws InvocationTargetException, IllegalAccessException {
-        ConfigArgSet annotation = method.getAnnotation(ConfigArgSet.class);
-        if (annotation == null) {
-            return;
-        }
-
-        String property = propertyFromMethod(method.getName());
-        Object value = args.remove(property);
-        if (value == null) {
-            if (requiredFieldsForClassAdded.containsKey(object)
-                    && requiredFieldsForClassAdded.get(object).contains(property)) {
-                return;
-            }
-
-            if (annotation.required()) {
-                throw new IllegalArgumentException("Property \"" + property + "\" is required for class " + object.getClass().getSimpleName());
-            } else if (applyDefaults) {
-                String defaultValue = annotation.defaultValue();
-                if (defaultValue.compareTo("") != 0) {
-                    LOGGER.info("\tSetting property \"" + property + "\" to default value: \"" + defaultValue + "\"");
-                    method.invoke(object, defaultValue);
-                }
-            }
-        } else {
-            if (annotation.required()) {
-                if (requiredFieldsForClassAdded.containsKey(object)) {
-                    requiredFieldsForClassAdded.get(object).add(property);
-                } else {
-                    requiredFieldsForClassAdded.put(object,
-                            new HashSet<>(Collections.singletonList(property)));
-                }
-            }
-            LOGGER.info("\tSetting property \"" + property + "\" to: \"" + value + "\"");
-            //TODO fix this ugly thing: all maps should be String -> String, but snake yaml automatically converts Integers, etc. so for now we call toString.
-            method.invoke(object, value.toString());
-        }
-    }
-
 
     public <T> T createObject(Class<? extends T> classObject, Map<String, Object> args)
             throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {

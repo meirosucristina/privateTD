@@ -15,12 +15,23 @@ import java.lang.reflect.Method;
 import java.util.*;
 
 /**
+<<<<<<< HEAD
  * Knows how to dump a Configuration object in yaml format in order to send it to the agents running in the cluster.
  * This class assumes that it is not necessary to dump the run mode and the publish mode fields of the Configuration
  * class since each Phase contained by this configuration already defines them.
  *
  * It is also assumed that the only action to be taken into consideration when dumping the configuration is Actions.ADD
  * since all the other actions were already processed before sending the execution query to the driver.
+=======
+ * This class should only be used for dumping a task(therefore a Configuration object) in order to send it
+ * to the agents in the K8S cluster as an HTTP query. This class assumes that it is not necessary to dump
+ * the run mode and the publish mode fields of the Configuration class since each Phase described by this
+ * configuration already defines those parameters.
+ *
+ * It also assumes that this only action to be taken into consideration when dumping the configuration is
+ * Actions.ADD since all the other actions were already processed before sending the execution query to
+ * the driver.
+>>>>>>> a5a4297cce69a4a59f3ea89066219df2314daefc
  */
 public class YamlDumpConfiguration {
 
@@ -142,8 +153,6 @@ public class YamlDumpConfiguration {
 
        return globals;
     }
-
-    /* used for dumping the configuration for running TD distributed */
 
     /**
      * Getter for the distributed configuration.

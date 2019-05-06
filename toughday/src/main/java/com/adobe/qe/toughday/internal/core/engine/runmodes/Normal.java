@@ -132,6 +132,7 @@ public class Normal implements RunMode, Cloneable {
         this.rate = Integer.valueOf(rate);
     }
 
+<<<<<<< HEAD
     @ConfigArgGet(redistribute = true)
     public String getInterval() {
         return String.valueOf(this.interval / 1000) + 's';
@@ -139,6 +140,11 @@ public class Normal implements RunMode, Cloneable {
 
     public void setInitialDelay(long initialDelay) {
         this.initialDelay = initialDelay;
+=======
+    @ConfigArgGet
+    public String getInterval() {
+        return String.valueOf(this.interval / 1000) + 's';
+>>>>>>> a5a4297cce69a4a59f3ea89066219df2314daefc
     }
 
     @ConfigArgSet(required = false, desc = "Used with rate to specify the time interval to add threads.",
@@ -284,8 +290,13 @@ public class Normal implements RunMode, Cloneable {
                 } else {
                     createAndExecuteWorker(engine, testSuite);
                 }
+<<<<<<< HEAD
             }
         };
+=======
+            }, this.initialDelay, interval, TimeUnit.MILLISECONDS);
+        }
+>>>>>>> a5a4297cce69a4a59f3ea89066219df2314daefc
     }
 
     public Runnable getRampDownRunnable() {
@@ -314,6 +325,7 @@ public class Normal implements RunMode, Cloneable {
                         break;
                     }
                 }
+<<<<<<< HEAD
             }
         };
     }
@@ -321,6 +333,10 @@ public class Normal implements RunMode, Cloneable {
     private void rampConcurrency() {
         // every 'interval' milliseconds, we'll create 'rate' workers
         schedulePeriodicTask();
+=======
+            }, initialDelay, interval, TimeUnit.MILLISECONDS);
+        }
+>>>>>>> a5a4297cce69a4a59f3ea89066219df2314daefc
     }
 
     public RunContext getRunContext() {
@@ -348,6 +364,57 @@ public class Normal implements RunMode, Cloneable {
         }
 
         return context;
+    }
+
+    private Normal setParamsForDistributedRunMode(int nrAgents, int rateRemainder,
+                                                   int endRemainder, int startRemainder,
+                                                   int concurrencyRemainder, int agentId) {
+        Normal clone = null;
+        try {
+            clone = (Normal) this.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+
+        if (isVariableConcurrency()) {
+            if (this.rate > nrAgents) {
+                clone.setRate(String.valueOf(this.getRate() / nrAgents + rateRemainder));
+                clone.setStart(String.valueOf(this.getStart() / nrAgents + startRemainder));
+                clone.setEnd(String.valueOf(this.getEnd() / nrAgents + endRemainder));
+            } else {
+                clone.initialDelay = agentId * this.interval;
+                clone.setInterval(String.valueOf(this.interval / 1000 * nrAgents) + 's');
+
+                if (agentId > 0) {
+                    clone.setStart("0");
+                    clone.setEnd(String.valueOf((this.end - this.start) / nrAgents));
+                } else {
+                    long diff = this.end - this.start;
+                    clone.setEnd(String.valueOf(diff / nrAgents + diff % nrAgents + this.start ));
+                }
+            }
+        } else {
+            /* we must distribute the concurrency level */
+            clone.setConcurrency(String.valueOf(this.getConcurrency() / nrAgents + concurrencyRemainder));
+        }
+
+       return clone;
+    }
+
+    @Override
+    public List<RunMode> distributeRunMode(int nrAgents) {
+        List<RunMode> taskRunModes = new ArrayList<>();
+
+        Normal firstTask = setParamsForDistributedRunMode(nrAgents, this.rate % nrAgents, this.end % nrAgents,
+                this.start % nrAgents, this.concurrency % nrAgents, 0);
+        taskRunModes.add(firstTask);
+
+        for (int i = 1; i < nrAgents; i++) {
+            Normal task = setParamsForDistributedRunMode(nrAgents, 0, 0, 0, 0, i);
+            taskRunModes.add(task);
+        }
+
+        return taskRunModes;
     }
 
     @Override

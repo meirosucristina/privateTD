@@ -12,19 +12,17 @@ spec:
         app: toughday-on-K8s-driver
     spec:
       containers:
-        - image: "toughdaycr.azurecr.io/driver:latest"
-          name: driver-container
-          ports:
-            - containerPort: 4567
-            - containerPort: 80
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 4567
-            initialDelaySeconds: 20
-            periodSeconds: 3
-      imagePullSecrets:
-        - name: regcred
+      - image: <TD driver docker image>
+        name: driver-container
+        ports:
+        - containerPort: 4567
+        - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 4567
+          initialDelaySeconds: 20
+          periodSeconds: 3
 
 ---
 
@@ -52,9 +50,9 @@ metadata:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
 spec:
   rules:
-    - http:
-        paths:
-          - backend:
-              serviceName: driver
-              servicePort: 80
-            path: /config
+  - http:
+      paths:
+      - backend:
+          serviceName: driver
+          servicePort: 80
+        path: /config
