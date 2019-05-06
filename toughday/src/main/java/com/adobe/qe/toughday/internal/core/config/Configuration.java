@@ -25,7 +25,6 @@ import com.adobe.qe.toughday.internal.core.engine.Phase;
 import com.adobe.qe.toughday.internal.core.engine.PublishMode;
 import com.adobe.qe.toughday.internal.core.engine.RunMode;
 import com.adobe.qe.toughday.internal.core.distributedtd.cluster.DistributedConfig;
-import com.adobe.qe.toughday.internal.core.k8s.ExecutionTrigger;
 import com.adobe.qe.toughday.metrics.Metric;
 import com.adobe.qe.toughday.publishers.CSVPublisher;
 import com.adobe.qe.toughday.publishers.ConsolePublisher;
@@ -276,21 +275,6 @@ public class Configuration {
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
         ConfigParams copyOfConfigParams = ConfigParams.deepClone(configParams);
         Map<String, Class> items = new HashMap<>();
-
-        /* check if we should trigger an execution query in the K8S cluster. */
-        if (executeInDitributedMode()) {
-            // sanity check
-            if (configParams.getGlobalParams().get("driverip") == null) {
-                throw new IllegalStateException("The public ip address at which the driver's service is accessible " +
-                        " is required when running TD in distributed mode.");
-            }
-
-            GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(copyOfConfigParams, items);
-            generateYaml.getGlobals().remove("k8srun");
-            generateYaml.getGlobals().remove("driverip");
-            new ExecutionTrigger(generateYaml.createYamlStringRepresentation(),
-                    String.valueOf(configParams.getGlobalParams().get("driverip"))).triggerExecution();
-        }
 
         // we should load extensions before any configuration object is created.
         handleExtensions(configParams);
