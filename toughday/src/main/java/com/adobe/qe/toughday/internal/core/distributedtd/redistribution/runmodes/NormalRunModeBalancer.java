@@ -82,8 +82,7 @@ public class NormalRunModeBalancer extends AbstractRunModeBalancer<Normal> {
     public void after(RedistributionInstructions redistributionInstructions, Normal runMode) {
         if (runMode.isVariableConcurrency()) {
             runMode.schedulePeriodicTask();
-            LOG.info("Rescheduled task for updating the number of worker threads with interval " +
-                    runMode.getInterval() + " and initial delay " + runMode.getInitialDelay());
+            LOG.info("Task responsible for updating the number threads used to run tests was rescheduled");
         }
     }
 }

@@ -8,8 +8,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Class responsible for partioning phases into multiple tasks to be distributed between the
- * agents running in the cluster.
+ * Class responsible for partitioning phases into multiple phases to be distributed between the agents running in
+ * the cluster.
  */
 public class PhaseSplitter {
 
@@ -68,9 +68,8 @@ public class PhaseSplitter {
 
     /**
      * Knows how to divide a phase into a number of phases equal to the number of agents running in the cluster.
-     * @param phase the phase to be divided into phases.
+     * @param phase the phase to be partitioned.
      * @param agents list with all the agents able to receive a task and to execute it.
-     * @throws CloneNotSupportedException if the phase is not cloneable.
      */
     public Map<String, Phase> splitPhase(Phase phase, List<String> agents) throws CloneNotSupportedException {
         sanityChecks(phase, agents);
@@ -81,16 +80,24 @@ public class PhaseSplitter {
         return mapPhaseToAgent(phase, partitionRunModes, partitionTestSuites, agents);
     }
 
-    public Map<String, Phase> splitPhaseForRebalancingWork(Phase phase, List<String> oldAgents,
+    /**
+     * Knows how to divide a phase into a number of phases equal to the number of agents running in the cluster taking
+     * into consideration the agents that recently joined the cluster and triggered the work redistribution process.
+     * @param phase : the phase to be partitioned
+     * @param existingAgents : agents that were running TD before redistributing the work
+     * @param newAgents : agents that recently joined the cluster
+     * @param phaseStartTime : execution start time of the phase
+     */
+    public Map<String, Phase> splitPhaseForRebalancingWork(Phase phase, List<String> existingAgents,
                                                            List<String> newAgents, long phaseStartTime)
             throws CloneNotSupportedException {
-        sanityChecks(phase, oldAgents);
+        sanityChecks(phase, existingAgents);
 
-        List<String> allAgents = new ArrayList<>(oldAgents);
+        List<String> allAgents = new ArrayList<>(existingAgents);
         allAgents.addAll(newAgents);
 
         Map<String, RunMode> partitionRunModes =
-                phase.getRunMode().getRunModeSplitter().distributeRunModeForRebalancingWork(phase.getRunMode(), oldAgents,
+                phase.getRunMode().getRunModeSplitter().distributeRunModeForRebalancingWork(phase.getRunMode(), existingAgents,
                         newAgents, phaseStartTime);
         Map<String, TestSuite> partitionTestSuites = distributeTestSuite(phase.getTestSuite(), allAgents);
 

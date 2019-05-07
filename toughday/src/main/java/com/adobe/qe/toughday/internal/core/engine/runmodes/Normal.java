@@ -87,6 +87,10 @@ public class Normal implements RunMode, Cloneable {
         this.concurrency = Integer.parseInt(concurrencyString);
     }
 
+    /**
+     * Creates shallow copy.
+     * @throws CloneNotSupportedException if the class does not implement the Cloneable interface
+     */
     @Override
     public Object clone() throws CloneNotSupportedException {
         return super.clone();
@@ -164,6 +168,10 @@ public class Normal implements RunMode, Cloneable {
         return activeThreads;
     }
 
+    /**
+     * Method used for cancelling the periodic task responsible for updating the number of threads used to run tests.
+     * @return true if the task was successfully canceled; false otherwise.
+     */
     public boolean cancelPeriodicTask() {
         if (this.scheduledFuture != null) {
             return this.scheduledFuture.cancel(true);
@@ -172,7 +180,16 @@ public class Normal implements RunMode, Cloneable {
         return true;
     }
 
+    /**
+     * Method used for scheduling the task responsible for updating the number of threads used to runs tests to execute
+     * every 'interval' milliseconds.
+     */
     public void schedulePeriodicTask() {
+        // required for testing the redistribution instruction processor
+        if (this.engine == null) {
+            return;
+        }
+
         if (this.start < this.end) {
             // execute 'rate' workers every 'interval'
             this.scheduledFuture = this.rampingScheduler.scheduleAtFixedRate(this.getRampUpRunnable(this.engine,
@@ -241,6 +258,9 @@ public class Normal implements RunMode, Cloneable {
         schedulePeriodicTask();
     }
 
+    /**
+     * Method used for finishing the execution of an worker used for running tests and for deleting this worker.
+     */
     public void finishAndDeleteWorker(AsyncTestWorker worker) {
         worker.finishExecution();
         this.getRunContext().getTestWorkers().remove(worker);

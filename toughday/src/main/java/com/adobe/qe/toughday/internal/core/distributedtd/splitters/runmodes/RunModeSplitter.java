@@ -17,7 +17,7 @@ public interface RunModeSplitter<T extends RunMode> {
      * @param runMode object to be partitioned
      * @param agents names of the agents waiting to receive TD execution requests from the driver.
      */
-    Map<String, T> distributeRunMode(T runMode, List<String> agents);
+    Map<String, T> distributeRunMode(T runMode, List<String> agents) throws CloneNotSupportedException;
 
     /**
      * Used for redistributing the run mode when the process of rebalancing the work is triggered.
@@ -27,5 +27,5 @@ public interface RunModeSplitter<T extends RunMode> {
      * @param phaseStartTime : time when the phase execution started
      */
     Map<String, T> distributeRunModeForRebalancingWork(T runMode, List<String> oldAgents, List<String> newAgents,
-                                                       long phaseStartTime);
+                                                       long phaseStartTime) throws CloneNotSupportedException;
 }

@@ -37,7 +37,6 @@ public class ExecutionTrigger {
     public void triggerExecution() {
         GenerateYamlConfiguration generateYaml = new GenerateYamlConfiguration(this.configuration.getConfigParams(), new HashMap<>());
         String yamlConfig = generateYaml.createYamlStringRepresentation();
-        System.out.println(yamlConfig);
         HttpUtils httpUtils = new HttpUtils();
 
         HttpResponse response = httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, yamlConfig, executionPath, 3);

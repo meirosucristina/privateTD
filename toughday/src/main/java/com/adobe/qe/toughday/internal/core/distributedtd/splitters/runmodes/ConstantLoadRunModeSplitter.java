@@ -21,14 +21,9 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
 
     private ConstantLoad setParamsForDistributedRunMode(ConstantLoad runMode, int nrAgents, int rateRemainder,
                                                         int startRemainder, int endRemainder,
-                                                        int loadRemainder, int agentId) {
-        ConstantLoad clone;
-        try {
-            clone = (ConstantLoad) runMode.clone();
-        } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
-            return runMode;
-        }
+                                                        int loadRemainder, int agentId) throws CloneNotSupportedException {
+        ConstantLoad clone = (ConstantLoad) runMode.clone();
+
 
         if (runMode.isVariableLoad()) {
             if (runMode.getRate() >= nrAgents) {
@@ -54,7 +49,8 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
     }
 
     @Override
-    public Map<String, ConstantLoad> distributeRunMode(ConstantLoad runMode, List<String> agents) {
+    public Map<String, ConstantLoad> distributeRunMode(ConstantLoad runMode, List<String> agents)
+            throws CloneNotSupportedException {
         int nrAgents = agents.size();
         Map<String, ConstantLoad> runModes = new HashMap<>();
 
@@ -72,7 +68,7 @@ public class ConstantLoadRunModeSplitter implements RunModeSplitter<ConstantLoad
 
     @Override
     public Map<String, ConstantLoad> distributeRunModeForRebalancingWork(ConstantLoad runMode, List<String> oldAgents,
-                                                                         List<String> newAgents, long phaseStartTime) {
+                                                                         List<String> newAgents, long phaseStartTime) throws CloneNotSupportedException {
         List<String> agents = new ArrayList<>(oldAgents);
         agents.addAll(newAgents);
 

@@ -24,8 +24,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.HTTP_REQUEST_RETRIES;
 import static com.adobe.qe.toughday.internal.core.distributedtd.HttpUtils.URL_PREFIX;
 import static com.adobe.qe.toughday.internal.core.engine.Engine.installToughdayContentPackage;
-import static spark.Spark.get;
-import static spark.Spark.post;
+import static spark.Spark.*;
 
 /**
  * Agent component for running TD distributed.
@@ -110,18 +109,28 @@ public class Agent {
     }
 
     private Engine engine;
-    private String ipAddress = "";
+    private static String ipAddress;
+
+    static {
+        try {
+            ipAddress = InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+            System.exit(-1);
+        }
+    }
+
     private final RedistributionInstructionsProcessor redistributionInstructionsProcessor = new RedistributionInstructionsProcessor();
 
-    private boolean announcePhaseCompletion() {
+    public static boolean announcePhaseCompletion() {
         /* the current master might be dead so we should retry this for a certain amount of time before shutting
          * down the execution.
          */
+        HttpUtils httpUtils = new HttpUtils();
         HttpResponse response = null;
         long duration = GlobalArgs.parseDurationToSeconds("60s");
 
         while (duration > 0 && response == null) {
-            response = this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, this.ipAddress,
+            response = httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, ipAddress,
                     Driver.getPhaseFinishedByAgentPath(), HTTP_REQUEST_RETRIES);
 
             try {
@@ -137,12 +146,6 @@ public class Agent {
     }
 
     public void start() {
-        try {
-            ipAddress = InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            System.exit(-1);
-        }
-
         register();
 
         post(INSTALL_SAMPLE_CONTENT_PATH, ((request, response) -> {
@@ -186,15 +189,17 @@ public class Agent {
             updateStatus(Status.BUILDING_CONFIG);
             String yamlTask = request.body();
             LOG.info("[Agent] Received task:\n" + yamlTask);
+
             Configuration configuration = new Configuration(yamlTask);
             this.engine = new Engine(configuration);
+            configuration.getDistributedConfig().setAgent("true");
 
             tdExecutorService.submit(() ->  {
                 updateStatus(Status.RUNNING);
                 this.engine.runTests();
 
                 if (!announcePhaseCompletion()) {
-                    LOG.error("Agent " + this.ipAddress + " could not inform driver that phase was executed.");
+                    LOG.error("Agent " + ipAddress + " could not inform driver that phase was executed.");
                     System.exit(-1);
                 }
 
@@ -272,7 +277,7 @@ public class Agent {
      */
     private void register() {
         HttpResponse response =
-                this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, this.ipAddress,
+                this.httpUtils.sendHttpRequest(HttpUtils.POST_METHOD, ipAddress,
                                                 Driver.getAgentRegisterPath(), HTTP_REQUEST_RETRIES);
         if (response == null) {
             System.out.println("could not register");

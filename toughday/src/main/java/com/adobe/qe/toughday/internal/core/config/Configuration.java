@@ -273,6 +273,7 @@ public class Configuration {
     }
 
     private void buildConfiguration(ConfigParams configParams) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException, IOException {
+        this.configParams = ConfigParams.deepClone(configParams);
         ConfigParams copyOfConfigParams = ConfigParams.deepClone(configParams);
         Map<String, Class> items = new HashMap<>();
 

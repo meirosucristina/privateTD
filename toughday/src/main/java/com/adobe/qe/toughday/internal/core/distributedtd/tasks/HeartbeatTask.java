@@ -57,7 +57,6 @@ public class HeartbeatTask implements Runnable {
     public void run() {
         List<String> activeAgents = new ArrayList<>(agents);
         // remove agents which previously failed to respond to heartbeat request
-        LOG.info("Inactive agents: " + this.taskBalancer.getInactiveAgents().toString() );
         this.taskBalancer.getInactiveAgents().forEach(activeAgents::remove);
 
         for (String agentIp : activeAgents) {

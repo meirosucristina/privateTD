@@ -18,16 +18,10 @@ import java.util.Map;
 public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
 
-    private Normal setParamsForDistributedRunMode(Normal runMode, int nrAgents, int rateRemainder,
-                                                  int endRemainder, int startRemainder,
-                                                  int concurrencyRemainder, int agentId) {
-        Normal clone;
-        try {
-            clone = (Normal) runMode.clone();
-        } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
-            return runMode;
-        }
+    private Normal setParamsForDistributedRunMode(Normal runMode, int nrAgents, int rateRemainder, int endRemainder,
+                                                  int startRemainder, int concurrencyRemainder, int agentId) throws CloneNotSupportedException {
+        Normal clone = (Normal) runMode.clone();
+
 
         if (runMode.isVariableConcurrency()) {
             if (runMode.getRate() >= nrAgents) {
@@ -56,7 +50,7 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
 
 
     @Override
-    public Map<String, Normal> distributeRunMode(Normal runMode, List<String> agents) {
+    public Map<String, Normal> distributeRunMode(Normal runMode, List<String> agents) throws CloneNotSupportedException {
         if (runMode == null) {
             throw new IllegalArgumentException("Run mode must not be null.");
         }
@@ -78,7 +72,7 @@ public class NormalRunModeSplitter implements RunModeSplitter<Normal> {
 
     @Override
     public Map<String, Normal> distributeRunModeForRebalancingWork(Normal runMode, List<String> oldAgents,
-                                                                   List<String> newAgents, long phaseStartTime) {
+                                                                   List<String> newAgents, long phaseStartTime) throws CloneNotSupportedException {
         if (runMode == null) {
             throw new IllegalArgumentException("Run mode must not be null.");
         }

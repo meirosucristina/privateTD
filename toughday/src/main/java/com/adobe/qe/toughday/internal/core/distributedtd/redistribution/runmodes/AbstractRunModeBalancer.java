@@ -29,13 +29,13 @@ public abstract class AbstractRunModeBalancer<T extends RunMode> implements RunM
                 .filter(method -> method.isAnnotationPresent(ConfigArgGet.class))
                 .filter(method -> method.getAnnotation(ConfigArgGet.class).redistribute())
                 .forEach(method -> {
+                    String propertyName = Configuration.propertyFromMethod(method.getName());
                     try {
-                        String propertyName = Configuration.propertyFromMethod(method.getName());
                         Object value = method.invoke(object);
-
                         properties.put(propertyName, String.valueOf(value));
                     } catch (IllegalAccessException | InvocationTargetException e) {
-                        e.printStackTrace();
+                        LOG.warn("Property " + propertyName + " could not be collected for redistribution instructions." +
+                                " Received error " + e.getMessage());
                     }
                 });
 

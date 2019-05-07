@@ -32,14 +32,12 @@ public class TaskBalancer {
     protected static final Logger LOG = LogManager.getLogger(Engine.class);
     private static TaskBalancer instance = null;
 
+    private RedistributionStatus status = RedistributionStatus.UNNECESSARY;
     private final PhaseSplitter phaseSplitter = new PhaseSplitter();
     private final HttpUtils httpUtils = new HttpUtils();
     private final ConcurrentLinkedQueue<String> inactiveAgents = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<String> recentlyAddedAgents = new ConcurrentLinkedQueue<>();
-    private RedistributionStatus status = RedistributionStatus.UNNECESSARY;
-
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
 
     public enum RedistributionStatus {
         UNNECESSARY,            // no need to redistribute the work
@@ -170,7 +168,7 @@ public class TaskBalancer {
                     Agent.getSubmissionTaskPath(newAgentIpAddress),  3);
 
             if (response == null) {
-                /* the assumption is that the agent will fail to answer to heartbeat request => work will be
+                /* the assumption is that the agent will fail to respond to heartbeat request => work will be
                  * automatically redistributed when this happens.
                  */
                 LOG.info("Failed to send task to new agent " + newAgentIpAddress + ".");
@@ -281,7 +279,7 @@ public class TaskBalancer {
             this.scheduler.schedule(() -> rebalanceWork(distributedPhaseMonitor, activeAgents,configuration,distributedConfig),
                     distributedConfig.getRedistributionWaitTimeInSeconds(), TimeUnit.SECONDS);
         } else if (this.status == RedistributionStatus.EXECUTING) {
-            LOG.info("Work redistribution process must be rescheduled as soon as the one executing now is finished.");
+            LOG.info("Work redistribution process must be rescheduled.");
             this.status = RedistributionStatus.RESCHEDULE_REQUIRED;
         }
 

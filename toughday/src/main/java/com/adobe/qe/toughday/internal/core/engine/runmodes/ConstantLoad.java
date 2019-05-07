@@ -299,8 +299,24 @@ public class ConstantLoad implements RunMode, Cloneable {
 
     }
 
-    private Runnable getRunnableToSchedule() {
-        return this.scheduler.getRunnableToSchedule(new MutableLong((initialDelay + interval) / 1000));
+    /**
+     * Method used for cancelling the task responsible for updating the current load.
+     * @return true if the task is successfully cancelled; false otherwise
+     */
+    public boolean cancelPeriodicTask() {
+        return this.scheduledFuture.cancel(true);
+    }
+
+
+    /**
+     * Method used for scheduling the task responsible for updating the current load to be executed every 'interval'
+     * milliseconds.
+     */
+    public void schedulePeriodicTask() {
+        MutableLong secondsLeft = new MutableLong((initialDelay + interval) / 1000);
+
+        this.runRoundScheduler.scheduleAtFixedRate(this.scheduler.getRunnableToSchedule(secondsLeft), 0,
+                GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
     }
 
     private class AsyncTestWorkerImpl extends AsyncTestWorker {
@@ -341,16 +357,6 @@ public class ConstantLoad implements RunMode, Cloneable {
         }
     }
 
-    public boolean cancelPeriodicTask() {
-        return this.scheduledFuture.cancel(true);
-    }
-
-    public void schedulePeriodicTask() {
-        this.runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(), 0,
-                GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
-    }
-
-
     private class AsyncTestWorkerScheduler extends AsyncEngineWorker {
         private Engine engine;
 
@@ -377,7 +383,7 @@ public class ConstantLoad implements RunMode, Cloneable {
             interval = newInterval * 1000; // set interval in milliseconds
         }
 
-        public Runnable getRunnableToSchedule(MutableLong secondsLeft) {
+        private Runnable getRunnableToSchedule(MutableLong secondsLeft) {
             return () -> {
                 if (!isFinished()) {
                     try {
@@ -412,10 +418,7 @@ public class ConstantLoad implements RunMode, Cloneable {
                 currentLoad = start;
             }
 
-
             MutableLong secondsLeft = new MutableLong((interval +  initialDelay) / 1000);
-            LOG.info("Seconds left is " + secondsLeft.getValue() + "s");
-
             scheduledFuture = runRoundScheduler.scheduleAtFixedRate(getRunnableToSchedule(secondsLeft),
                     0, GlobalArgs.parseDurationToSeconds("1s"), TimeUnit.SECONDS);
 
@@ -423,48 +426,31 @@ public class ConstantLoad implements RunMode, Cloneable {
 
         private void rampUp(MutableLong secondsLeft) {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad + rate >= end + oneAgentRate))) {
-                LOG.info("[ramp up] Execution finished...");
                 finishExecution();
             }
 
             // if 'interval' has passed and the current load is still below 'end',
             // increase the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad < end) {
-                LOG.info("Ramping up...");
-                LOG.info("[ramping up] Current load is " + currentLoad);
-                secondsLeft.setValue(interval);
-
                 currentLoad += rate;
-                LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad > end) {
                     currentLoad = end;
                 }
 
-                LOG.info("[ramping up] New load is " + currentLoad);
                 secondsLeft.setValue(interval / 1000);
             }
         }
 
         private void rampDown(MutableLong secondsLeft) {
             if (currentLoad == end || ((oneAgentRate > 0) && (currentLoad - rate <= end - oneAgentRate))) {
-                LOG.info("[ramp down] Execution finished...");
                 finishExecution();
             }
-
-            LOG.info("[rampDown] end is " + end + " secondsleft is " + secondsLeft.getValue() + " currentLoad is " +
-                    currentLoad);
 
             // if 'interval' has passed and the currentLoad is still above 'end',
             // decrease the current load
             if (secondsLeft.getValue() == 0 && end != -1 && currentLoad > end) {
-                LOG.info("[rampDown] end is " + end);
-                LOG.info("Ramping down...");
-                LOG.info("[ramping up] Current load is " + currentLoad);
-                secondsLeft.setValue(interval);
-
                 currentLoad -= rate;
-                LOG.debug("Current load: " + currentLoad);
 
                 if (currentLoad < end) {
                     currentLoad = end;
